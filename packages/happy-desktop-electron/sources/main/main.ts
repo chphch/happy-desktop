@@ -39,7 +39,7 @@ import {
     localWebNavigationAllowed,
     rendererNavigationAllowed,
 } from "./navigation";
-import { desktopFlavor } from "./desktopFlavor";
+import { desktopFlavor, desktopSelfUpdate } from "./desktopFlavor";
 import { dockBadgeApply, dockBadgeClear, dockUnreadCountRead } from "./dockBadge";
 import { desktopUpdaterCreate, type DesktopUpdater } from "./updater";
 import { DesktopWindowLifecycle, type DesktopWindowBounds } from "./windowLifecycle";
@@ -1912,9 +1912,12 @@ void app
             preview: desktopConfigStore.get().previewUpdatesEnabled === true,
             flavor: desktopFlavor.kind,
             // Releases publish macOS and Windows update manifests; a packaged
-            // Linux build has nothing to check against yet.
+            // Linux build has nothing to check against yet, and a build with
+            // self-update off is not one of those releases.
             platform:
-                app.isPackaged && (process.platform === "darwin" || process.platform === "win32")
+                desktopSelfUpdate &&
+                app.isPackaged &&
+                (process.platform === "darwin" || process.platform === "win32")
                     ? process.platform
                     : undefined,
             update: (snapshot) => runtime.updateSet(snapshot),
