@@ -6,11 +6,15 @@ const localWebOrigin =
     flavor === "local-web"
         ? process.env.HAPPY_LOCAL_WEB_ORIGIN || "https://local.app.happy.engineering"
         : null;
+// A build the published releases do not come from, such as a fork's own, turns
+// self-update off so the updater never replaces it with one of them.
+const selfUpdate = process.env.HAPPY_DESKTOP_SELF_UPDATE !== "off";
 
 export default defineConfig({
     define: {
         __HAPPY_DESKTOP_FLAVOR__: JSON.stringify(flavor),
         __HAPPY_LOCAL_WEB_ORIGIN__: JSON.stringify(localWebOrigin),
+        __HAPPY_DESKTOP_SELF_UPDATE__: JSON.stringify(selfUpdate),
     },
     publicDir: false,
     build: {
