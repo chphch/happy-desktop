@@ -7,6 +7,8 @@
 // Gatekeeper assessment that checks them. It also leaves the committed app
 // icon as it is: `pnpm desktop:assets` on this Mac rewrites it with different
 // bytes (measured 2026-11-09: icns 716 KB -> 97 KB from the same source.png).
+// Self-update is off (HAPPY_DESKTOP_SELF_UPDATE=off): the published releases
+// are upstream's, and installing one would replace this build.
 //
 //   node scripts/build-mac-unsigned.mjs [--arch=arm64|x64]
 //
@@ -37,15 +39,19 @@ await run("pnpm", ["--dir", "packages/happy-desktop-electron", "typecheck"]);
 await rm(join(desktopDirectory, "dist"), { force: true, recursive: true });
 await run("pnpm", ["--dir", "packages/happy-desktop-electron", "exec", "vite", "build"]);
 for (const viteConfig of ["vite.main.config.ts", "vite.preload.config.ts"])
-    await run("pnpm", [
-        "--dir",
-        "packages/happy-desktop-electron",
-        "exec",
-        "vite",
-        "build",
-        "--config",
-        viteConfig,
-    ]);
+    await run(
+        "pnpm",
+        [
+            "--dir",
+            "packages/happy-desktop-electron",
+            "exec",
+            "vite",
+            "build",
+            "--config",
+            viteConfig,
+        ],
+        { HAPPY_DESKTOP_SELF_UPDATE: "off" },
+    );
 
 const staging = join("release", ".staging", "standard-unsigned");
 await rm(join(desktopDirectory, staging), { force: true, recursive: true });
