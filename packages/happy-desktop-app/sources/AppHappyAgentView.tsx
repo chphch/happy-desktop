@@ -4405,12 +4405,9 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
                     return;
                 }
                 const destination = rowDestination(happyAgent, row.id);
-                workspaceChangesShowOnOpen(
-                    happyAgent.session?.workspace,
-                    happyAgent.projects
-                        .flatMap((project) => [project, ...project.worktrees])
-                        .find((group) => group.id === row.id),
-                );
+                // The side pane stays as the reader left it in that group,
+                // uncommitted changes or not: a row is the way back to a
+                // conversation, not a request to look at the checkout.
                 if (destination)
                     props.onChatSelect(happyAgent.id, destination.groupId, destination.chatId);
             }}
@@ -7515,8 +7512,8 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
         openGroup === undefined
             ? undefined
             : workFloatyOwnPlace(openGroup, rows, panelChanges, floatyFromGit);
-    // A workspace the card names opens the way its sidebar row does: where it
-    // was left, or on its newest chat, with its changes beside it.
+    // A workspace the card names opens where it was left, or on its newest
+    // chat, with its changes beside it: the card names it for those changes.
     const workspaceOpen = (groupId: HappyAgentGroupId) => {
         const group = rows
             .flatMap((project) => [project, ...project.worktrees])
