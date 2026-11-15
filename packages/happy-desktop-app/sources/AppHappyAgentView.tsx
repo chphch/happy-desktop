@@ -11408,6 +11408,13 @@ function HappyAgentConversationSurface(props: {
                           onInvalidMessageReport: (messageId: string, errors: readonly string[]) =>
                               report(conversation.conversationId, messageId, errors),
                       })(props.onInvalidMessageReport)}
+            {...(props.readOnly
+                ? {}
+                : {
+                      onMessageOptionSelect: (option: string) => {
+                          if (props.happyAgentOnline()) void workspace.messageSendCurrent(option);
+                      },
+                  })}
             /* A chat that takes no message cannot be continued from its failure
                either, so a read-only one offers only a new chat. */
             failureActions={{
