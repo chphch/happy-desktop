@@ -1067,6 +1067,14 @@ export function Composer(props: ComposerProps) {
         });
     };
     const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+        /*
+         * A key pressed while an input method composes is the input method's.
+         * The Korean one on macOS commits its last syllable on Enter and then
+         * delivers Enter again; sending on the first one emptied the draft
+         * before the syllable landed, and the second sent it as a message of
+         * its own. WebKit marks the committing keydown only with keyCode 229.
+         */
+        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
         const historyDirection = historyChordOf(event.nativeEvent);
         if (historyDirection) {
             // Prevented here, the browser runs neither its own Undo nor the

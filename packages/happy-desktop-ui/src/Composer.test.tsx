@@ -1534,3 +1534,63 @@ it("handles typing, sending, and mention picking", async () => {
     expect(popoverOf("composer-nav")).not.toBeNull();
     await view.screenshot("Composer.mention.test");
 });
+it("leaves Enter to the input method while it composes", async () => {
+    const sends: string[] = [];
+    const selectedMentionIds: string[] = [];
+    const view = createRenderer()
+        .render(
+            () => (
+                <Harness
+                    initial="해결해줘"
+                    onSend={(value) => sends.push(value)}
+                    testid="composer-ime"
+                />
+            ),
+            { width: 600, height: 140, padding: 20 },
+        )
+        .render(
+            () => (
+                <Harness
+                    mentions={mentions}
+                    onMention={(mention) => selectedMentionIds.push(mention.id)}
+                    spacerTop={200}
+                    testid="composer-ime-mention"
+                />
+            ),
+            { width: 620, height: 360, padding: 20 },
+        );
+    await view.ready();
+    const textareaOf = (testid: string) =>
+        view.$(`[data-testid="${testid}"] [data-happy-desktop-ui="composer-textarea"]`)
+            .element as HTMLTextAreaElement;
+    /*
+     * The Enter an input method takes to commit its syllable. Chromium marks it
+     * isComposing; WebKit fires it after compositionend with only keyCode 229.
+     */
+    const imeEnter = (textarea: HTMLTextAreaElement, isComposing: boolean) => {
+        const event = new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            isComposing,
+            key: "Enter",
+        });
+        Object.defineProperty(event, "keyCode", { value: 229 });
+        textarea.dispatchEvent(event);
+        return event;
+    };
+    const ime = textareaOf("composer-ime");
+    await userEvent.click(ime);
+    expect(imeEnter(ime, true).defaultPrevented).toBe(false);
+    expect(imeEnter(ime, false).defaultPrevented).toBe(false);
+    expect(sends).toEqual([]);
+    // The Enter after the commit sends the whole draft, once.
+    await userEvent.keyboard("{Enter}");
+    expect(sends).toEqual(["해결해줘"]);
+    // An open mention picker leaves the composing Enter alone too.
+    const mention = textareaOf("composer-ime-mention");
+    await userEvent.click(mention);
+    await userEvent.keyboard("@");
+    imeEnter(mention, true);
+    expect(selectedMentionIds).toEqual([]);
+    expect(mention.value).toBe("@");
+});
