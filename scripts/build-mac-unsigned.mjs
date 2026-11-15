@@ -9,6 +9,12 @@
 // bytes (measured 2026-11-09: icns 716 KB -> 97 KB from the same source.png).
 // Self-update is off (HAPPY_DESKTOP_SELF_UPDATE=off): the published releases
 // are upstream's, and installing one would replace this build.
+// Cookie encryption is off too, unlike in upstream's builds. Its key lives in
+// the keychain item "Happy Safe Storage", and the keychain trusts an app whose
+// signature Apple did not issue only by the hash of that one build, so every
+// newly installed build asked for the login password again, whatever "Always
+// Allow" had granted the build before. The price: cookies, those of the in-app
+// browser's saved profiles included, are stored unencrypted.
 //
 //   node scripts/build-mac-unsigned.mjs [--arch=arm64|x64]
 //
@@ -124,6 +130,15 @@ function builderConfiguration(base, output, app) {
             hardenedRuntime: false,
             notarize: false,
         },
+        electronFuses: {
+            ...base.electronFuses,
+            // securityd names the client of an ad-hoc signature by its code hash
+            // ("cdhash:<hash>" in ClientIdentification::partitionIdForProcess)
+            // and checks that name on every read of a keychain item, so no
+            // earlier "Always Allow" covers a new build. Without cookie
+            // encryption this app never reads the item.
+            enableCookieEncryption: false,
+        },
         publish: { ...structuredClone(base.publish), channel: selectedFlavor.channel },
     };
 }
@@ -155,6 +170,18 @@ async function buildVerify(output) {
         "dist/main.js",
         "dist/happyAgentRendererUtility.js",
     ]);
+    // electron-builder flips the fuses with @electron/fuses; read them back with
+    // the same library, found among electron-builder's own dependencies.
+    const fusesRequire = createRequire(
+        createRequire(require.resolve("electron-builder")).resolve("app-builder-lib"),
+    );
+    const { FuseV1Options, getCurrentFuseWire } = fusesRequire("@electron/fuses");
+    const { FuseState } = fusesRequire("@electron/fuses/dist/constants");
+    const fuses = await getCurrentFuseWire(application);
+    if (fuses[FuseV1Options.EnableCookieEncryption] !== FuseState.DISABLE)
+        throw new Error(
+            "The packaged app encrypts its cookies with a keychain key, so each new build would ask for the login password.",
+        );
     await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", application]);
     return application;
 }
