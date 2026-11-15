@@ -739,6 +739,7 @@ function conversationProject(session: GroupSession): HappyAgentConversationSumma
         status: session.status as HappyAgentSessionStatus,
         activeSubagentCount: session.activeSubagents,
         activeProcessCount: session.activeProcesses,
+        ...(session.backgroundOnly === true ? { backgroundOnly: true as const } : {}),
         ...(session.subtaskActivity === undefined
             ? {}
             : { subtaskActivity: session.subtaskActivity }),
