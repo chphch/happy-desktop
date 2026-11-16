@@ -727,6 +727,15 @@ export interface HappyAgentWorkspaceSnapshot {
      * reader out of the session they have just made.
      */
     readonly conversationDelegated: boolean;
+    /**
+     * Whether the addressed conversation is archived while it is addressed here:
+     * archived from another window or device, or by an agent, while it was open,
+     * or reached already archived, as a message search hit is. It stays readable
+     * where it is, and `conversationRestore` brings it back. A chat closed in this
+     * window is not this: closing it is what the reader asked for, so it takes
+     * them off it rather than leaving it to read.
+     */
+    readonly conversationArchived: boolean;
     /** Materialization state for the open conversation; unloaded means none is open. */
     readonly conversation: Loadable<HappyAgentConversationSnapshot>;
     readonly fileTabs: readonly HappyAgentFileTabSnapshot[];
@@ -1713,6 +1722,11 @@ export interface HappyAgentWorkspaceStore {
      * goes at once and `groupCloseRequested` reports it.
      */
     taskArchive(taskId: HappyAgentTaskId): Promise<boolean>;
+    /**
+     * Brings an archived task back for everyone, when the host says the reader
+     * may. Its conversation takes messages again once the host has done it.
+     */
+    taskUnarchive(taskId: HappyAgentTaskId): Promise<void>;
     /** Opens the list of every task this Happy Agent holds, to join one. */
     taskBrowseOpen(): void;
     taskBrowseClose(): void;
@@ -2582,6 +2596,12 @@ export function happyAgentWorkspaceStoreCreate(
      * readable where it is.
      */
     const tasksArchivedHere = new Set<HappyAgentTaskId>();
+    /**
+     * Chats the reader closed in this window, for the same reason: closing one
+     * archives it, and the window is already taking them off it, so it is never
+     * shown as an archived chat to read in the moment before it goes.
+     */
+    const conversationsArchivedHere = new Set<HappyAgentSessionId>();
     // A changed document opens as the rendered change; every other file, having
     // no rendering, opens on the unified diff it falls back to.
     let fileViewMode: HappyAgentFileViewMode = "rendered";
@@ -2990,6 +3010,7 @@ export function happyAgentWorkspaceStoreCreate(
         list: list.get(),
         conversation,
         conversationDelegated: false,
+        conversationArchived: false,
         groupAccess: happyAgentGroupAccessRefused(HAPPY_AGENT_GROUP_UNLISTED_REFUSAL),
         fileTabs,
         recentTabs: client.memory.recentTabsRead(),
@@ -3278,6 +3299,10 @@ export function happyAgentWorkspaceStoreCreate(
         const chat = chatStore?.get();
         const draft = composer && composerSourceOf(composer);
         const conversationDelegated = openId !== undefined && list.sessionDelegated(openId);
+        const conversationArchived =
+            openId !== undefined &&
+            !conversationsArchivedHere.has(openId) &&
+            listSnapshot.archivedSessions.some((session) => session.id === openId);
         // A failed acquisition stays failed until something retries it; the
         // composer must not paint over the error the reader has to act on.
         if (draft && openId && conversation.type !== "error") {
@@ -3347,6 +3372,7 @@ export function happyAgentWorkspaceStoreCreate(
                 snapshot.groupAccess.conversationRefusal === groupAccess.conversationRefusal &&
                 snapshot.list === listSnapshot &&
                 snapshot.conversationDelegated === conversationDelegated &&
+                snapshot.conversationArchived === conversationArchived &&
                 snapshot.conversation === conversation &&
                 snapshot.groupComposer === groupComposerDraft &&
                 snapshot.groupSessionDraft === groupSessionDraft &&
@@ -3388,6 +3414,7 @@ export function happyAgentWorkspaceStoreCreate(
                           list: listSnapshot,
                           conversation,
                           conversationDelegated,
+                          conversationArchived,
                           groupAccess,
                           fileTabs,
                           recentTabs,
@@ -7283,6 +7310,7 @@ export function happyAgentWorkspaceStoreCreate(
                     list: list.get(),
                     conversation,
                     conversationDelegated: false,
+                    conversationArchived: false,
                     groupAccess: happyAgentGroupAccessRefused(HAPPY_AGENT_GROUP_UNLISTED_REFUSAL),
                     fileTabs,
                     recentTabs: client.memory.recentTabsRead(),
@@ -8058,6 +8086,7 @@ export function happyAgentWorkspaceStoreCreate(
             return list.sessionCreate(create).then(created);
         },
         conversationArchive: async (conversationId) => {
+            conversationsArchivedHere.add(conversationId);
             await list.sessionArchive(conversationId);
             client.chatArchive(conversationId);
             if (retained.has(conversationId)) {
@@ -8066,6 +8095,7 @@ export function happyAgentWorkspaceStoreCreate(
             }
         },
         conversationRestore: async (conversationId) => {
+            conversationsArchivedHere.delete(conversationId);
             const result = await list.sessionRestore(conversationId);
             if (result.type === "failed") throw result.error;
             client.chatRestore(conversationId);
@@ -8251,6 +8281,10 @@ export function happyAgentWorkspaceStoreCreate(
                 if (!taken) tasksArchivedHere.delete(taskId);
                 return taken;
             });
+        },
+        taskUnarchive: (taskId) => {
+            tasksArchivedHere.delete(taskId);
+            return list.taskUnarchive(taskId);
         },
         taskBrowseOpen() {
             if (taskBrowseOpen) return;

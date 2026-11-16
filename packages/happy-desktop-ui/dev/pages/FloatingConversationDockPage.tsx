@@ -231,9 +231,13 @@ function dock(
     attachments: ComposerSnapshot["attachments"] = [],
     onAttachmentRemove: (attachmentId: string) => void = noop,
     notice?: readonly string[],
+    archived?: { readonly message: string; readonly placeholder: string },
 ) {
     return (
         <ConversationDock
+            {...(archived === undefined
+                ? {}
+                : { archived: { message: archived.message, onResume: noop }, disabled: true })}
             composer={composer({ attachments, text: value })}
             composerControls={
                 <ComposerModelControl
@@ -271,7 +275,7 @@ function dock(
                     }
                 />
             }
-            composerPlaceholder="Message Happy…"
+            composerPlaceholder={archived?.placeholder ?? "Message Happy…"}
             onComposerAttachmentRemove={onAttachmentRemove}
             onComposerAttachmentsSelect={noop}
             onComposerSend={noop}
@@ -477,6 +481,28 @@ export function FloatingConversationDockPage() {
             >
                 <TranscriptWindow restarting={false} />
             </FullScreenSpecimen>
+            <Specimen
+                detail="A neutral banner above the locked input says the chat is archived and offers Resume, which brings it back so the input opens again · the transcript stays readable meanwhile"
+                label="Archived chat"
+                number="09"
+                stage="surface"
+            >
+                <Box
+                    style={{
+                        background: "var(--surface)",
+                        display: "flex",
+                        flexDirection: "column",
+                        minHeight: "260px",
+                        justifyContent: "flex-end",
+                        width: "720px",
+                    }}
+                >
+                    {dock("", false, [], noop, undefined, {
+                        message: "This chat is archived.",
+                        placeholder: "Resume this chat to write in it.",
+                    })}
+                </Box>
+            </Specimen>
             <Specimen
                 detail="56px image, video, and file previews · loaded images open immediately in the full-window Lightbox"
                 label="Draft attachments"
