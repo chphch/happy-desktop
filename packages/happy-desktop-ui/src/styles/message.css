@@ -993,6 +993,37 @@
     white-space: pre;
 }
 
+/* A page a reply wrote (`MessageHtmlPage`): laid on the reply's own surface,
+   on its text column, with a code block's margins, at the height it measured.
+   Until it has measured, its source stands in its place as an ordinary code
+   block and the page is laid out unseen, at the same width, behind it. */
+.happy-message__page {
+    position: relative;
+    max-width: 100%;
+}
+
+.happy-message__page[data-state="ready"] {
+    margin: 12px 0;
+}
+
+.happy-message__page-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: transparent;
+}
+
+.happy-message__page[data-state="measuring"] > .happy-message__page-frame {
+    /* Absolute: the hidden page takes no space from its source. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 1px;
+    visibility: hidden;
+    pointer-events: none;
+}
+
 /* ---- Frames in the transcript ---------------------------------------- */
 
 /*
@@ -1006,12 +1037,20 @@
  */
 .happy-message[data-agent] .happy-message__body--markdown > .happy-message__code-block,
 .happy-message[data-agent]
+    .happy-message__body--markdown
+    > .happy-message__page
+    > .happy-message__code-block,
+.happy-message[data-agent]
     .happy-message__attachments
     > .happy-file-attachment[data-variant="chat"] {
     margin-inline: calc(-1 * var(--happy-chat-frame-outset));
 }
 
-.happy-message[data-agent] .happy-message__body--markdown > .happy-message__code-block {
+.happy-message[data-agent] .happy-message__body--markdown > .happy-message__code-block,
+.happy-message[data-agent]
+    .happy-message__body--markdown
+    > .happy-message__page
+    > .happy-message__code-block {
     max-width: calc(100% + 2 * var(--happy-chat-frame-outset));
 }
 

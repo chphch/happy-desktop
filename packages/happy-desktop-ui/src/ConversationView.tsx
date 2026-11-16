@@ -77,11 +77,13 @@ import {
     conversationRowHeightPrepare,
     conversationRowHeightCacheCreate,
     conversationRowHeightCachePrune,
+    messageMediaSignature,
     type ConversationFailureRowContext,
     type ConversationRequestFailureRowContext,
     type ConversationRowContext,
     type ConversationRowHeightCache,
 } from "./conversationRowHeight";
+import { messageMarkdownMediaSubscribe, messageMarkdownMediaVersion } from "./messageMarkdownMedia";
 import {
     conversationInlineArtifactLeads,
     conversationInlinePage,
@@ -643,6 +645,13 @@ export function ConversationView(props: ConversationViewProps) {
         mediaVideoFramesVersion,
         mediaVideoFramesVersion,
     );
+    /* A reply's page changes its row's height once its height is learned;
+       the rows that hold one are asked again. */
+    useSyncExternalStore(
+        messageMarkdownMediaSubscribe,
+        messageMarkdownMediaVersion,
+        messageMarkdownMediaVersion,
+    );
     const conversationCacheKey =
         props.conversationId === undefined ? "anonymous" : `conversation:${props.conversationId}`;
     const [rowExpansion, setRowExpansion] = useState(() => new Map<string, boolean>());
@@ -1193,14 +1202,21 @@ export function ConversationView(props: ConversationViewProps) {
                                             : "message-closed"
                                         : "";
                                 const layouts = inlineLayouts.messages.get(entry.message.id);
-                                if (layouts === undefined) return fold;
+                                const media = messageMediaSignature(
+                                    layouts?.text ?? entry.message.text,
+                                    props.references,
+                                    entry.message.generationStatus === "streaming",
+                                    rowHeightCache.text,
+                                );
+                                const learned = media === "" ? "" : `|media:${media}`;
+                                if (layouts === undefined) return `${fold}${learned}`;
                                 let frames = "";
                                 for (const layout of layouts.layouts.values())
                                     frames += mediaVideoFramesSignature(
                                         layout.members.map((member) => member.item),
                                         framesAt,
                                     );
-                                return `${fold}|${layouts.signature}|${frames}`;
+                                return `${fold}|${layouts.signature}|${frames}${learned}`;
                             }
                             /* A section's row is one line whatever it holds. */
                             if (toolSections.sections.has(entryKey(entry))) return "section";

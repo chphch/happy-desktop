@@ -27,6 +27,7 @@ import {
     errorTextHeight,
     markdownBodyHeight,
     markdownBodyPrepare,
+    markdownMediaSignature,
     plainTextHeight,
     MESSAGE_PLAIN_LINE_HEIGHT,
     messageTextLayoutCacheCreate,
@@ -781,8 +782,25 @@ export function messageRowHeight(input: MessageRowHeightInput): number {
             input.mermaidEnabled,
             input.streaming,
             messageLayoutsHeight(input.layouts),
+            true,
         )
     );
+}
+
+/**
+ * What a settled message body has learned of its pages' heights
+ * (`messageMarkdownMedia`), as part of a row key: empty for a body with none. Read from the same resolved text the row is sized from,
+ * so the parsed body is shared with it. A streaming body is sized again with
+ * every delta, so it needs none.
+ */
+export function messageMediaSignature(
+    body: string,
+    references: MessageReferences | undefined,
+    streaming: boolean,
+    cache: MessageTextLayoutCache | undefined,
+): string {
+    if (streaming || !body.includes("artifact")) return "";
+    return markdownMediaSignature(messageReferencesResolve(body, references, false), cache);
 }
 
 /**
@@ -1467,6 +1485,13 @@ export function conversationRowHeight(
         messageReferencesSignature(conversationEntryReferences(entry), context.references),
         context.messageLayouts?.signature ?? "",
         messageLayoutsFramesSignature(context.messageLayouts),
+        // A page's height, learned after the text.
+        messageMediaSignature(
+            context.messageLayouts?.text ?? message.text,
+            context.references,
+            message.generationStatus === "streaming",
+            cache?.text,
+        ),
     ].join(":");
     return rowHeightCached(cache, entry, cacheKey, () => {
         let height = messageRowHeight(
