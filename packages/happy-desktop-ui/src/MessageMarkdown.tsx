@@ -606,12 +606,14 @@ function appendTrailingInline(children: ReactNode, trailing: ReactNode): ReactNo
 }
 /** A lone picture of a message body, at the size it has reported. */
 function MarkdownPicture({ alt, src }: { alt: string; src: string }) {
-    useSyncExternalStore(
+    /* Read through the version, so the compiled render asks again when a
+       size arrives rather than keeping the one it first read. */
+    const at = useSyncExternalStore(
         messageMarkdownMediaSubscribe,
         messageMarkdownMediaVersion,
         messageMarkdownMediaVersion,
     );
-    const size = messagePictureSize(src);
+    const size = messagePictureSize(src, at);
     return (
         <MessagePicture
             alt={alt}
@@ -650,12 +652,14 @@ function markdownFenceIsPage(node: ExtraProps["node"]): boolean {
 }
 /** A page fence of a message body, at the height it has measured, its source until then. */
 function MarkdownPage({ children, source }: { children: ReactNode; source: string }) {
-    useSyncExternalStore(
+    /* Read through the version, so the compiled render asks again when the
+       height arrives rather than keeping the one it first read. */
+    const at = useSyncExternalStore(
         messageMarkdownMediaSubscribe,
         messageMarkdownMediaVersion,
         messageMarkdownMediaVersion,
     );
-    const height = messagePageHeight(source);
+    const height = messagePageHeight(source, at);
     return (
         <MessageHtmlPage
             onHeightChange={(next) => messagePageHeightRecord(source, next)}

@@ -2111,28 +2111,33 @@ function markdownMediaSignatureOf(
     text: string,
     ready: MessageTextLayoutCache,
     pages: boolean,
+    at?: number,
 ): string {
     // Most bodies hold neither; they skip the parse.
     if (!text.includes("![") && !(pages && text.includes("artifact"))) return "";
-    return messageMarkdownMediaSignature(messageMarkdownTree(text, ready), pages);
+    return messageMarkdownMediaSignature(messageMarkdownTree(text, ready), pages, at);
 }
 
 /**
  * What a message body has learned of its pictures' shapes and, with `pages`,
  * its pages' heights, as part of a row's cache key: empty for a body with
  * neither. The same text and cache `markdownBodyHeight` is given, so the
- * parsed tree is shared with it.
+ * parsed tree is shared with it. `at` is the version of the learned sizes the
+ * caller read (`messageMarkdownMediaVersion`), so a memoized render asks again
+ * exactly when a size arrives.
  */
 export function markdownMediaSignature(
     text: string,
     cache: MessageTextLayoutCache = sharedCache,
     streaming = false,
     pages = !streaming,
+    at?: number,
 ): string {
     return markdownMediaSignatureOf(
         text,
         cacheReady(streaming ? streamingCache(cache) : cache),
         pages,
+        at,
     );
 }
 

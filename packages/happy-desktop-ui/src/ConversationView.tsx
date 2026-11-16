@@ -672,7 +672,7 @@ export function ConversationView(props: ConversationViewProps) {
     );
     /* A reply's lone picture or page changes its row's height once its shape
        or height is learned; the rows that hold one are asked again. */
-    useSyncExternalStore(
+    const mediaAt = useSyncExternalStore(
         messageMarkdownMediaSubscribe,
         messageMarkdownMediaVersion,
         messageMarkdownMediaVersion,
@@ -1208,6 +1208,7 @@ export function ConversationView(props: ConversationViewProps) {
                                     props.references,
                                     entry.message.generationStatus === "streaming",
                                     rowHeightCache.text,
+                                    mediaAt,
                                 );
                                 const learned = media === "" ? "" : `|media:${media}`;
                                 if (layouts === undefined) return `${fold}${learned}`;

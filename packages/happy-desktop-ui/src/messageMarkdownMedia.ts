@@ -48,8 +48,12 @@ export function messagePageSource(node: MarkdownBlock): string | undefined {
     return node.type === "code" && node.lang === "artifact" && !node.meta ? node.value : undefined;
 }
 
-/** The height a page last measured at, in CSS pixels; absent before it has been laid out. */
-export function messagePageHeight(source: string): number | undefined {
+/**
+ * The height a page last measured at, in CSS pixels; absent before it has been
+ * laid out. `at` is the version a render read (`messageMarkdownMediaVersion`),
+ * so a memoized render asks again exactly when a height arrives.
+ */
+export function messagePageHeight(source: string, _at: number = version): number | undefined {
     return pageHeights.get(source);
 }
 
@@ -137,8 +141,12 @@ export function messagePicture(
 /**
  * A picture's size: the one its bytes reported once drawn, or for a `data:`
  * address the one its header states, which is known before anything loads.
+ * `at` is the version a render read, as for `messagePageHeight`.
  */
-export function messagePictureSize(url: string): MessagePictureSize | undefined {
+export function messagePictureSize(
+    url: string,
+    _at: number = version,
+): MessagePictureSize | undefined {
     const learned = pictureSizes.get(url);
     if (learned) return learned;
     if (!url.startsWith("data:")) return undefined;
@@ -178,9 +186,14 @@ export function messageMarkdownMediaSubscribe(listener: () => void): () => void 
 /**
  * What the top level of `tree` reads from learned sizes, as part of a cache
  * key: empty when it holds no picture and, with `pages`, no page; otherwise
- * each one's size or `?`.
+ * each one's size or `?`. `at` is the version the caller read, so a value
+ * derived from it is recomputed exactly when a size arrives.
  */
-export function messageMarkdownMediaSignature(tree: MessageMarkdownAst, pages: boolean): string {
+export function messageMarkdownMediaSignature(
+    tree: MessageMarkdownAst,
+    pages: boolean,
+    _at: number = version,
+): string {
     let signature = "";
     for (const node of tree.children) {
         const picture = messagePicture(node);
