@@ -1245,12 +1245,12 @@ it("renders only http/https/mailto Markdown targets as live hrefs", async () => 
         [...navBody.element.querySelectorAll<HTMLAnchorElement>("a")].find(
             (anchor) => anchor.textContent?.trim() === text,
         );
-    /* A `data:image/svg+xml` image renders as an inert labelled link — never an
-       implicit fetch and never a navigable data: href. */
-    const dataImage = view.$('[data-testid="nav"] [data-happy-desktop-ui="message-md-image"]');
-    expect(dataImage.element.tagName).toBe("A");
-    expect(dataImage.element.getAttribute("href"), "data:image href is stripped").toBeNull();
-    expect(dataImage.element.getAttribute("data-md-src")).toBeNull();
+    /* A `data:image` picture on a line of its own is drawn as the picture: its
+       bytes are in the message, so it fetches nothing, and it is never a
+       navigable data: href. */
+    const dataPicture = view.$('[data-testid="nav"] [data-happy-desktop-ui="message-picture"] img');
+    expect(dataPicture.element.getAttribute("src")).toBe("data:image/svg+xml;base64,PHN2Zy8+");
+    expect(dataPicture.element.closest("a"), "a picture is not a link").toBeNull();
     /* file: and bare #fragment targets are inert; http(s)/mailto navigate. */
     expect(linkByText("local file")?.getAttribute("href"), "file: href is stripped").toBeNull();
     expect(linkByText("jump")?.getAttribute("href"), "#fragment href is stripped").toBeNull();
@@ -1880,7 +1880,10 @@ it("renders string bodies as safe streaming Markdown", async () => {
     expect(unsafe!.getAttribute("href")).toBeNull();
     /* ---- Raw HTML + image safety --------------------------------------- */
     const unsafeBody = view.$('[data-testid="md-unsafe"] [data-happy-desktop-ui="message-body"]');
-    expect(unsafeBody.element.querySelector("img"), "no live <img> from raw HTML").toBeNull();
+    expect(
+        unsafeBody.element.querySelector('img[src="x"]'),
+        "no live <img> from raw HTML",
+    ).toBeNull();
     expect(unsafeBody.element.querySelector("script"), "no <script> from raw HTML").toBeNull();
     /* Raw HTML is skipped outright, tag and attributes alike; the prose
        around it survives. */
@@ -1894,12 +1897,14 @@ it("renders string bodies as safe streaming Markdown", async () => {
         ).__pwned,
         "no injected handler executed",
     ).toBeUndefined();
-    /* A Markdown image is a safe labelled link, never an implicit <img> fetch. */
-    const mdImage = view.$('[data-testid="md-unsafe"] [data-happy-desktop-ui="message-md-image"]');
-    expect(mdImage.element.tagName).toBe("A");
-    expect(mdImage.element.getAttribute("href")).toBe("https://cdn.example.com/diagram.png");
-    expect(mdImage.element.getAttribute("data-md-src")).toBe("https://cdn.example.com/diagram.png");
-    expect(mdImage.element.textContent).toBe("diagram");
+    /* A Markdown picture on a line of its own at an https address is drawn as
+       the picture, fetched without a referrer. */
+    const mdPicture = view.$(
+        '[data-testid="md-unsafe"] [data-happy-desktop-ui="message-picture"] img',
+    );
+    expect(mdPicture.element.getAttribute("src")).toBe("https://cdn.example.com/diagram.png");
+    expect(mdPicture.element.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(mdPicture.element.getAttribute("alt")).toBe("diagram");
     /* A linked image contributes labelled content to its one outer anchor;
        nested interactive elements are invalid and produce ambiguous focus. */
     const linkedImage = view.$(

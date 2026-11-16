@@ -1024,6 +1024,22 @@
     pointer-events: none;
 }
 
+/* A picture a reply placed on a line of its own that could not be loaded:
+   its box stays, and says so. */
+.happy-message__picture-failed {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 18px;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
 /* ---- Frames in the transcript ---------------------------------------- */
 
 /*
