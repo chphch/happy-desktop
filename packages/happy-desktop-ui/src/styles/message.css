@@ -1018,7 +1018,11 @@
 }
 
 /* A picture a reply placed on a line of its own that could not be loaded:
-   its box stays, and says so. */
+   its box stays, and says so over the broken picture. */
+.happy-message__media-item[data-state="failed"] > .happy-message__media-image {
+    visibility: hidden;
+}
+
 .happy-message__picture-failed {
     position: absolute;
     inset: 0;

@@ -53,29 +53,31 @@ export function MessagePicture(props: MessagePictureProps) {
                         style={style}
                         type="button"
                     >
+                        {/* The picture stays in place when it fails, under
+                            the words that say so, so the tile is the same
+                            element either way. */}
+                        <img
+                            alt={alt}
+                            className="happy-message__media-image"
+                            decoding="async"
+                            draggable={false}
+                            loading="lazy"
+                            onError={() => setFailed(props.src)}
+                            onLoad={(event) => {
+                                const image = event.currentTarget;
+                                props.onSize?.({
+                                    width: image.naturalWidth,
+                                    height: image.naturalHeight,
+                                });
+                            }}
+                            referrerPolicy="no-referrer"
+                            src={props.src}
+                        />
                         {failed === props.src ? (
                             <span className="happy-message__picture-failed">
                                 {alt || "The image could not be loaded."}
                             </span>
-                        ) : (
-                            <img
-                                alt={alt}
-                                className="happy-message__media-image"
-                                decoding="async"
-                                draggable={false}
-                                loading="lazy"
-                                onError={() => setFailed(props.src)}
-                                onLoad={(event) => {
-                                    const image = event.currentTarget;
-                                    props.onSize?.({
-                                        width: image.naturalWidth,
-                                        height: image.naturalHeight,
-                                    });
-                                }}
-                                referrerPolicy="no-referrer"
-                                src={props.src}
-                            />
-                        )}
+                        ) : null}
                     </button>
                 )}
             />
