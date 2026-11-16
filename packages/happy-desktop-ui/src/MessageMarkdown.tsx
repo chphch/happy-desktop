@@ -32,7 +32,11 @@ import {
     messagePageHeight,
     messagePageHeightRecord,
     messagePageSource,
+    messagePicture,
+    messagePictureSize,
+    messagePictureSizeRecord,
 } from "./messageMarkdownMedia";
+import { MessagePicture } from "./MessagePicture";
 import { messageInlineLayoutKey } from "./conversationInlineLayouts";
 import { MessageMention } from "./MessageMention";
 import {
@@ -261,18 +265,32 @@ function remarkInlineLayouts() {
     };
 }
 /**
- * Whether the body being rendered is a message's, whose page fences draw
- * (`messageMarkdownMedia`); the row model sizes a message body the same way.
- * Other Markdown in the transcript keeps them as code blocks.
+ * Whether the body being rendered is a message's, whose lone pictures and
+ * page fences draw (`messageMarkdownMedia`); the row model sizes a message
+ * body the same way. Other Markdown in the transcript keeps them as Markdown.
  */
 const MarkdownMediaContext = createContext(false);
 /**
- * Marks a message body's top-level page fences for the renderer, by the same
- * rule the row model reads: a page fence's code says it is one.
+ * Marks a message body's top-level pictures and page fences for the renderer,
+ * by the same rules the row model reads: a lone picture's paragraph names its
+ * address and description (taken before the URL filter, which would empty a
+ * `data:` address), and a page fence's code says it is one.
  */
 function remarkMessageMedia() {
     return (tree: MessageMarkdownAst) => {
         for (const node of tree.children) {
+            const picture = messagePicture(node);
+            if (picture !== undefined) {
+                node.data = {
+                    ...node.data,
+                    hProperties: {
+                        ...node.data?.hProperties,
+                        dataHappyPicture: picture.url,
+                        dataHappyPictureAlt: picture.alt,
+                    },
+                };
+                continue;
+            }
             if (messagePageSource(node) !== undefined)
                 node.data = {
                     ...node.data,
@@ -301,9 +319,11 @@ function SizedMarkdown({ children }: { children: string }) {
 }
 type MarkdownImageProps = ComponentPropsWithoutRef<"img"> & ExtraProps;
 /**
- * A Markdown image is rendered as a safe labelled link, never an `<img>`: an
- * untrusted body must not trigger an implicit remote fetch merely by being
- * displayed. First-class attachments use the Message image grid instead.
+ * A Markdown image inside running text, or outside a message's own body, is
+ * rendered as a safe labelled link, never an `<img>`. A message body's picture
+ * on a line of its own is drawn instead (`MessagePicture`), from the addresses
+ * `messagePictureSource` allows. First-class attachments use the Message image
+ * grid.
  */
 const MarkdownImage = ({ alt, src }: MarkdownImageProps) => {
     const withinLink = useContext(MarkdownLinkContext);
@@ -590,12 +610,35 @@ function appendTrailingInline(children: ReactNode, trailing: ReactNode): ReactNo
         </>
     );
 }
+/** A lone picture of a message body, at the size it has reported. */
+function MarkdownPicture({ alt, src }: { alt: string; src: string }) {
+    useSyncExternalStore(
+        messageMarkdownMediaSubscribe,
+        messageMarkdownMediaVersion,
+        messageMarkdownMediaVersion,
+    );
+    const size = messagePictureSize(src);
+    return (
+        <MessagePicture
+            alt={alt}
+            onSize={(next) => messagePictureSizeRecord(src, next)}
+            src={src}
+            {...(size ? { size } : {})}
+        />
+    );
+}
 const MarkdownParagraph = ({
     children,
     node,
     ...props
 }: ComponentPropsWithoutRef<"p"> & ExtraProps) => {
     const trailing = useContext(MarkdownTrailingContext);
+    const media = useContext(MarkdownMediaContext);
+    const picture = node?.properties["dataHappyPicture"];
+    if (media && typeof picture === "string") {
+        const alt = node?.properties["dataHappyPictureAlt"];
+        return <MarkdownPicture alt={typeof alt === "string" ? alt : ""} src={picture} />;
+    }
     return (
         <p {...props}>
             {trailing !== null && node?.position?.end.offset === trailing.endOffset
@@ -935,8 +978,8 @@ const messageUrlTransform: UrlTransform = (url, key, node) =>
  * and which are busy; a label written on one is never shown. Without it each reads as a
  * placeholder, and a legacy reference tag never shows raw. `layoutRender` draws the
  * layouts a reply placed (see `conversationInlineLayouts`) where their
- * placeholders stand. `media` marks a message's own body, whose page fences
- * draw (`messageMarkdownMedia`); its row is sized the same way.
+ * placeholders stand. `media` marks a message's own body, whose lone pictures
+ * and page fences draw (`messageMarkdownMedia`); its row is sized the same way.
  */
 export function renderMessageMarkdown(
     source: string,

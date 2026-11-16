@@ -139,8 +139,8 @@ export function HappyAgentMessagesSurfacePage(props: HappyAgentMessagesSurfacePa
         messageTextLayoutFontGenerationGet,
         messageTextLayoutFontGenerationGet,
     );
-    /* A message's page changes its row's height once its height is
-       learned. */
+    /* A message's lone picture or page changes its row's height once its
+       shape or height is learned. */
     const mediaAt = useSyncExternalStore(
         messageMarkdownMediaSubscribe,
         messageMarkdownMediaVersion,

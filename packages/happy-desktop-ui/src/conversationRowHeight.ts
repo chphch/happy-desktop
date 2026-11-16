@@ -786,8 +786,9 @@ export function messageRowHeight(input: MessageRowHeightInput): number {
 }
 
 /**
- * What a settled message body has learned of its pages' heights
- * (`messageMarkdownMedia`), as part of a row key: empty for a body with none. Read from the same resolved text the row is sized from,
+ * What a settled message body has learned of its lone pictures' shapes and its
+ * pages' heights (`messageMarkdownMedia`), as part of a row key: empty for a
+ * body with neither. Read from the same resolved text the row is sized from,
  * so the parsed body is shared with it. A streaming body is sized again with
  * every delta, so it needs none.
  */
@@ -797,7 +798,7 @@ export function messageMediaSignature(
     streaming: boolean,
     cache: MessageTextLayoutCache | undefined,
 ): string {
-    if (streaming || !body.includes("artifact")) return "";
+    if (streaming || (!body.includes("![") && !body.includes("artifact"))) return "";
     return markdownMediaSignature(messageReferencesResolve(body, references, false), cache);
 }
 
@@ -1482,7 +1483,7 @@ export function conversationRowHeight(
         messageReferencesSignature(conversationEntryReferences(entry), context.references),
         context.messageLayouts?.signature ?? "",
         messageLayoutsFramesSignature(context.messageLayouts),
-        // A page's height, learned after the text.
+        // A picture's shape or a page's height, learned after the text.
         messageMediaSignature(
             context.messageLayouts?.text ?? message.text,
             context.references,
