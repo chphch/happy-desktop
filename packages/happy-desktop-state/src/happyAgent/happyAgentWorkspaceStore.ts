@@ -731,9 +731,10 @@ export interface HappyAgentWorkspaceSnapshot {
      * Whether the addressed conversation is archived while it is addressed here:
      * archived from another window or device, or by an agent, while it was open,
      * or reached already archived, as a message search hit is. It stays readable
-     * where it is, and `conversationRestore` brings it back. A chat closed in this
-     * window is not this: closing it is what the reader asked for, so it takes
-     * them off it rather than leaving it to read.
+     * where it is, and `conversationRestore` brings it back, which Happy Agent
+     * needs before it takes a message into it. A chat closed in this window is
+     * not this: closing it is what the reader asked for, so it takes them off it
+     * rather than leaving it to read.
      */
     readonly conversationArchived: boolean;
     /** Materialization state for the open conversation; unloaded means none is open. */
@@ -1722,11 +1723,6 @@ export interface HappyAgentWorkspaceStore {
      * goes at once and `groupCloseRequested` reports it.
      */
     taskArchive(taskId: HappyAgentTaskId): Promise<boolean>;
-    /**
-     * Brings an archived task back for everyone, when the host says the reader
-     * may. Its conversation takes messages again once the host has done it.
-     */
-    taskUnarchive(taskId: HappyAgentTaskId): Promise<void>;
     /** Opens the list of every task this Happy Agent holds, to join one. */
     taskBrowseOpen(): void;
     taskBrowseClose(): void;
@@ -8281,10 +8277,6 @@ export function happyAgentWorkspaceStoreCreate(
                 if (!taken) tasksArchivedHere.delete(taskId);
                 return taken;
             });
-        },
-        taskUnarchive: (taskId) => {
-            tasksArchivedHere.delete(taskId);
-            return list.taskUnarchive(taskId);
         },
         taskBrowseOpen() {
             if (taskBrowseOpen) return;

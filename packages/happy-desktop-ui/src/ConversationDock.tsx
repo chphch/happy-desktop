@@ -25,14 +25,6 @@ export type ConversationDockProps = {
      * is for; this says what to do first.
      */
     disabledNote?: string;
-    /**
-     * The conversation is archived: a banner above the input says so in
-     * `message`, and offers Resume while `onResume` is given, which brings the
-     * conversation back so it can be written into again. The caller keeps the
-     * composer `disabled` until it is back, and withholds `onResume` where it
-     * cannot come back from here or the Happy Agent is out of reach.
-     */
-    archived?: { readonly message: string; readonly onResume?: () => void };
     /** Keeps the draft editable but disables submission to an unavailable Happy Agent. */
     submitDisabled?: boolean;
     /** Controls rendered inside the composer toolbar, beside the send control. */
@@ -176,8 +168,8 @@ function mentionsOf(composer: ComposerSnapshot): Mentionable[] {
 }
 
 /**
- * The write end of a conversation: the archived and failed-submission banners
- * and the `Composer` itself, stacked in one measure-width column.
+ * The write end of a conversation: the failed-submission banner and the
+ * `Composer` itself, stacked in one measure-width column.
  *
  * It is its own component because a conversation is not the only place one is
  * written from. The expanded workspace panel floats the same dock over whatever
@@ -307,18 +299,6 @@ export function ConversationDock(props: ConversationDockProps) {
             data-testid={props["data-testid"]}
             style={props.style}
         >
-            {props.archived ? (
-                <Banner
-                    {...(props.archived.onResume === undefined
-                        ? {}
-                        : { action: { label: "Resume", onClick: props.archived.onResume } })}
-                    data-testid="conversation-archived"
-                    icon="archive"
-                    tone="neutral"
-                >
-                    {props.archived.message}
-                </Banner>
-            ) : null}
             {composer.submission.status === "failed" ? (
                 <Banner
                     action={
