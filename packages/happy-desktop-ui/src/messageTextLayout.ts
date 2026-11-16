@@ -38,6 +38,11 @@ import {
     messageMarkdownParse,
     type MessageMarkdownAst,
 } from "./messageMarkdownAst";
+import {
+    messageMarkdownMediaSignature,
+    messagePageHeight,
+    messagePageSource,
+} from "./messageMarkdownMedia";
 import { messagePlainTextNormalize } from "./messagePlainText";
 
 /**
@@ -1362,6 +1367,25 @@ function messageMarkdownFootnotes(
  * block a meaning (a reply's own layout).
  */
 export type MarkdownHtmlBlockHeight = (html: string, measure: number) => number | undefined;
+/**
+ * What a message body's top level draws beyond its Markdown (see
+ * `messageMarkdownMedia`): once the reply has settled, a page fence as its
+ * page.
+ */
+type MarkdownBodyMedia = { readonly pages: boolean };
+/**
+ * A page fence's box: the page at the height it measured, with a code block's
+ * margins, or its source until it has measured.
+ */
+function pageBlock(source: string, codeMargins: boolean): Block {
+    const height = messagePageHeight(source);
+    if (height === undefined) return codeBlock(source, codeMargins);
+    return {
+        height,
+        marginTop: codeMargins ? CODE_GAP : 0,
+        marginBottom: codeMargins ? CODE_GAP : 0,
+    };
+}
 function markdownBlocksHeight(
     nodes: readonly MarkdownRootContent[],
     measure: number,
@@ -1372,12 +1396,17 @@ function markdownBlocksHeight(
     trailing: MarkdownTrailingInline | undefined,
     mermaidEnabled: boolean,
     htmlBlockHeight?: MarkdownHtmlBlockHeight,
+    media?: MarkdownBodyMedia,
 ): number {
     const blocks = nodes
         .map((node) => {
             if (htmlBlockHeight !== undefined && node.type === "html") {
                 const height = htmlBlockHeight(node.value, measure);
                 return height === undefined ? undefined : flow(height);
+            }
+            if (media !== undefined) {
+                const page = media.pages ? messagePageSource(node) : undefined;
+                if (page !== undefined) return pageBlock(page, codeMargins);
             }
             return markdownBlockHeight(
                 node,
@@ -2099,6 +2128,34 @@ export function* markdownBodyPrepare(
     }
 }
 
+function markdownMediaSignatureOf(
+    text: string,
+    ready: MessageTextLayoutCache,
+    pages: boolean,
+): string {
+    // Most bodies hold none; they skip the parse.
+    if (!(pages && text.includes("artifact"))) return "";
+    return messageMarkdownMediaSignature(messageMarkdownTree(text, ready), pages);
+}
+
+/**
+ * What a message body has learned of its pages' heights, with `pages`, as part
+ * of a row's cache key: empty for a body with none. The same text and cache
+ * `markdownBodyHeight` is given, so the parsed tree is shared with it.
+ */
+export function markdownMediaSignature(
+    text: string,
+    cache: MessageTextLayoutCache = sharedCache,
+    streaming = false,
+    pages = !streaming,
+): string {
+    return markdownMediaSignatureOf(
+        text,
+        cacheReady(streaming ? streamingCache(cache) : cache),
+        pages,
+    );
+}
+
 /**
  * Painted height of a Markdown message body wrapped at `measure` px. Adjacent
  * block margins collapse to the larger of the two, exactly as they do in flow,
@@ -2115,6 +2172,8 @@ export function markdownBodyHeight(
     mermaidEnabled = true,
     streaming = false,
     htmlBlockHeight?: MarkdownHtmlBlockHeight,
+    /** A message body: once settled, its page fences draw (`messageMarkdownMedia`). */
+    media = false,
 ): number {
     /* A virtual row's size is authoritative even while it streams. Bound the
        lifetime of prefix layout, not its accuracy: use the same Markdown/font
@@ -2126,7 +2185,10 @@ export function markdownBodyHeight(
         byMeasure = dictionaryCreate();
         ready.markdownHeights[text] = byMeasure;
     }
-    const measureKey = `${String(measure)}:${String(trailingExtraWidth)}:${mermaidEnabled ? "diagram" : "source"}`;
+    /* A page's height is learned after the text, so what this body has
+       learned of its pages is part of the key. */
+    const mediaKey = media ? `:media:${markdownMediaSignatureOf(text, ready, mermaidEnabled)}` : "";
+    const measureKey = `${String(measure)}:${String(trailingExtraWidth)}:${mermaidEnabled ? "diagram" : "source"}${mediaKey}`;
     const cached = byMeasure[measureKey];
     if (cached !== undefined) return cached;
     const tree = messageMarkdownTree(text, ready);
@@ -2146,6 +2208,7 @@ export function markdownBodyHeight(
         trailing,
         mermaidEnabled,
         htmlBlockHeight,
+        media ? { pages: mermaidEnabled } : undefined,
     );
     const footnotesHeight = markdownFootnotesHeight(footnotes, measure, ready, mermaidEnabled);
     const height =
