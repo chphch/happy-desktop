@@ -4,6 +4,7 @@ import {
     memo,
     useContext,
     useState,
+    useSyncExternalStore,
     type ComponentPropsWithoutRef,
     type MouseEvent,
     type ReactNode,
@@ -22,7 +23,15 @@ import { MathFormula } from "./MathFormula";
 import { mathFormulaRender } from "./mathFormulaRender";
 import { MermaidDiagram } from "./MermaidDiagram";
 import { FILE_REFERENCE_LINK_ATTRIBUTE } from "./messageFileReferences";
+import { MessageHtmlPage } from "./MessageHtmlPage";
 import { MESSAGE_MARKDOWN_REMARK_PLUGINS, type MessageMarkdownAst } from "./messageMarkdownAst";
+import {
+    messageMarkdownMediaSubscribe,
+    messageMarkdownMediaVersion,
+    messagePageHeight,
+    messagePageHeightRecord,
+    messagePageSource,
+} from "./messageMarkdownMedia";
 import { messageInlineLayoutKey } from "./conversationInlineLayouts";
 import { MessageMention } from "./MessageMention";
 import {
@@ -247,6 +256,27 @@ function remarkInlineLayouts() {
         }
     };
 }
+/**
+ * Whether the body being rendered is a message's, whose page fences draw
+ * (`messageMarkdownMedia`); the row model sizes a message body the same way.
+ * Other Markdown in the transcript keeps them as code blocks.
+ */
+const MarkdownMediaContext = createContext(false);
+/**
+ * Marks a message body's top-level page fences for the renderer, by the same
+ * rule the row model reads: a page fence's code says it is one.
+ */
+function remarkMessageMedia() {
+    return (tree: MessageMarkdownAst) => {
+        for (const node of tree.children) {
+            if (messagePageSource(node) !== undefined)
+                node.data = {
+                    ...node.data,
+                    hProperties: { ...node.data?.hProperties, dataHappyPage: "" },
+                };
+        }
+    };
+}
 function SizedMarkdown({ children }: { children: string }) {
     const cache = useContext(MarkdownLayoutCacheContext);
     return (
@@ -256,6 +286,7 @@ function SizedMarkdown({ children }: { children: string }) {
             remarkPlugins={[
                 ...MESSAGE_MARKDOWN_REMARK_PLUGINS,
                 remarkInlineLayouts,
+                remarkMessageMedia,
                 [remarkSizedTree, cache],
             ]}
             skipHtml
@@ -567,6 +598,31 @@ const MarkdownParagraph = ({
         </p>
     );
 };
+/** Whether a fence is one `remarkMessageMedia` marked as a page. */
+function markdownFenceIsPage(node: ExtraProps["node"]): boolean {
+    const code = node?.children.find(
+        (child) => child.type === "element" && child.tagName === "code",
+    );
+    return code?.type === "element" && code.properties["dataHappyPage"] !== undefined;
+}
+/** A page fence of a message body, at the height it has measured, its source until then. */
+function MarkdownPage({ children, source }: { children: ReactNode; source: string }) {
+    useSyncExternalStore(
+        messageMarkdownMediaSubscribe,
+        messageMarkdownMediaVersion,
+        messageMarkdownMediaVersion,
+    );
+    const height = messagePageHeight(source);
+    return (
+        <MessageHtmlPage
+            onHeightChange={(next) => messagePageHeightRecord(source, next)}
+            source={source}
+            {...(height === undefined ? {} : { height })}
+        >
+            {children}
+        </MessageHtmlPage>
+    );
+}
 const MarkdownPre = ({
     children,
     node,
@@ -574,6 +630,7 @@ const MarkdownPre = ({
 }: ComponentPropsWithoutRef<"pre"> & ExtraProps) => {
     const fence = markdownFence(node);
     const generationStatus = useContext(MarkdownGenerationStatusContext);
+    const media = useContext(MarkdownMediaContext);
     if (markdownFenceIsMermaid(fence))
         return (
             <MermaidDiagram
@@ -582,7 +639,7 @@ const MarkdownPre = ({
                 variant="message"
             />
         );
-    return (
+    const codeBlock = (
         <div className="happy-message__code-block" data-happy-desktop-ui="message-code-block">
             <ScrollArea axes="horizontal" viewportClassName="happy-message__code-block-viewport">
                 <pre {...props}>{children}</pre>
@@ -594,6 +651,16 @@ const MarkdownPre = ({
             />
         </div>
     );
+    /* A page draws once its reply has settled, as a diagram does: until then
+       the fence may not have closed, and its source is what there is. */
+    if (
+        media &&
+        fence !== undefined &&
+        generationStatus !== "streaming" &&
+        markdownFenceIsPage(node)
+    )
+        return <MarkdownPage source={fence.text}>{codeBlock}</MarkdownPage>;
+    return codeBlock;
 };
 /** The TeX a formula element was given by `messageMathTreeShape`. */
 function markdownMathSource(node: ExtraProps["node"]): string {
@@ -848,7 +915,8 @@ const messageUrlTransform: UrlTransform = (url, key, node) =>
  * `happy://` links an agent wrote to entities to their live titles; without it each reads as
  * inert text, and a legacy reference tag never shows raw. `layoutRender` draws the
  * layouts a reply placed (see `conversationInlineLayouts`) where their
- * placeholders stand.
+ * placeholders stand. `media` marks a message's own body, whose page fences
+ * draw (`messageMarkdownMedia`); its row is sized the same way.
  */
 export function renderMessageMarkdown(
     source: string,
@@ -860,6 +928,7 @@ export function renderMessageMarkdown(
     references?: MessageReferences,
     onFileLinkOpen?: FileLinkOpenHandler,
     layoutRender?: MessageLayoutRender,
+    media?: boolean,
 ): ReactNode {
     const text = messageReferencesResolve(source, references, generationStatus === "streaming");
     return (
@@ -878,7 +947,9 @@ export function renderMessageMarkdown(
                                 <MarkdownLinkOpenContext.Provider value={onLinkOpen}>
                                     <MarkdownLinkDefaultContext.Provider value={linkOpenDefault}>
                                         <MarkdownLayoutRenderContext.Provider value={layoutRender}>
-                                            <SizedMarkdown>{text}</SizedMarkdown>
+                                            <MarkdownMediaContext.Provider value={media === true}>
+                                                <SizedMarkdown>{text}</SizedMarkdown>
+                                            </MarkdownMediaContext.Provider>
                                         </MarkdownLayoutRenderContext.Provider>
                                     </MarkdownLinkDefaultContext.Provider>
                                 </MarkdownLinkOpenContext.Provider>

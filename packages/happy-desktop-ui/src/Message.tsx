@@ -603,6 +603,7 @@ export function Message(props: MessageProps) {
                             local.references,
                             local.onFileLinkOpen,
                             local.layoutRender,
+                            true,
                         )
                       : null}
                 {local.bodyFold ? (

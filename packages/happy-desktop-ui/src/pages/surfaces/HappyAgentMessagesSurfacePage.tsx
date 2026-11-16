@@ -13,6 +13,10 @@ import { CONTENT_MEASURE, messageRowHeight } from "../../conversationRowHeight";
 import { EmptyState } from "../../EmptyState";
 import { Message, MessageList } from "../../Message";
 import {
+    messageMarkdownMediaSubscribe,
+    messageMarkdownMediaVersion,
+} from "../../messageMarkdownMedia";
+import {
     messageTextLayoutCacheCreate,
     messageTextLayoutFontGenerationGet,
     messageTextLayoutFontGenerationSubscribe,
@@ -134,6 +138,13 @@ export function HappyAgentMessagesSurfacePage(props: HappyAgentMessagesSurfacePa
         messageTextLayoutFontGenerationSubscribe,
         messageTextLayoutFontGenerationGet,
         messageTextLayoutFontGenerationGet,
+    );
+    /* A message's page changes its row's height once its height is
+       learned. */
+    const mediaAt = useSyncExternalStore(
+        messageMarkdownMediaSubscribe,
+        messageMarkdownMediaVersion,
+        messageMarkdownMediaVersion,
     );
     const viewer = props.viewer;
     const own = (row: Row) =>
@@ -268,7 +279,7 @@ export function HappyAgentMessagesSurfacePage(props: HappyAgentMessagesSurfacePa
         return (
             <MessageList
                 className="happy-agent-messages-surface__list"
-                estimateDependencies={[viewer?.userId, expanded]}
+                estimateDependencies={[viewer?.userId, expanded, mediaAt]}
                 estimateRowSize={rowHeight}
                 estimateRowWidth={contentWidth}
                 estimateRows={rows.map((row) => row.message)}
