@@ -670,8 +670,8 @@ export function ConversationView(props: ConversationViewProps) {
         mediaVideoFramesVersion,
         mediaVideoFramesVersion,
     );
-    /* A reply's page changes its row's height once its height is learned;
-       the rows that hold one are asked again. */
+    /* A reply's lone picture or page changes its row's height once its shape
+       or height is learned; the rows that hold one are asked again. */
     useSyncExternalStore(
         messageMarkdownMediaSubscribe,
         messageMarkdownMediaVersion,
