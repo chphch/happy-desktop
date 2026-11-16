@@ -1187,8 +1187,6 @@ interface OpenGroup {
     readonly lifecycle?: HappyAgentGroupLifecycle;
     /** The checkout's path, so a notice about it can name the directory. */
     readonly path: string;
-    /** The task this group is, when it is an archived task kept on screen to read. */
-    readonly archivedTask?: HappyAgentTask;
 }
 
 /** What the window reads when the host supplies no settings store: the product defaults, unchanging. */
@@ -2409,7 +2407,6 @@ function openGroupFind(
             conversations: [archived.conversation],
             changes: [],
             path: archived.displayPath,
-            archivedTask: archived,
         };
     return undefined;
 }
@@ -2444,16 +2441,8 @@ function conversationLockedPlaceholder(title: string | undefined): string {
 /** The composer prompt for an archived chat that cannot come back from here. */
 const CHAT_ARCHIVED_PLACEHOLDER = "This chat is archived. Its conversation stays here to read.";
 
-/**
- * An archived chat or task on screen that the reader can bring back: what the
- * banner above its locked input says, what the input itself says, and what
- * Resume does, which is absent while the Happy Agent is out of reach.
- */
-type ConversationResume = {
-    readonly message: string;
-    readonly placeholder: string;
-    readonly resume?: () => void;
-};
+/** Said above the input of an archived chat that a message brings back. */
+const CHAT_ARCHIVED_NOTICE = "This chat is archived. Sending a message brings it back.";
 
 /** A sidebar row's id: which Happy Agent it belongs to, then the group inside it. */
 function happyAgentItemId(happyAgentId: string, id: string): string {
@@ -7964,55 +7953,22 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
                   : {}),
           }
         : undefined;
-    // An archived chat or task that is still on screen: archived somewhere else
-    // while it was open here, or reached already archived. Happy Agent refuses a
-    // message to it, so its input is locked, and where the reader can bring it
-    // back the dock offers Resume: a project or worktree chat comes back the way
-    // a closed tab does, and a task the reader may unarchive through its task.
-    // A delegated chat, a bot's and a subtask's cannot come back from here
-    // (Happy Agent refuses them too), so they stay locked with nothing offered.
-    const archivedTask = openGroup?.archivedTask;
+    // A chat archived while it is open here (from another window or device,
+    // or by an agent) or reached already archived, as a message search hit is.
+    // It stays readable, and the reader writes into it as into any other: Happy
+    // Agent takes no message into an archived chat, so sending brings it back
+    // first, and a line above the input says so. Reading it changes nothing. A
+    // delegated chat cannot be brought back from here (Happy Agent refuses one
+    // that another agent runs), so it stays locked instead.
     const archivedChat =
         workspace.conversationArchived && props.chatId !== undefined
             ? workspace.list.archivedSessions.find((session) => session.id === props.chatId)
             : undefined;
-    const conversationResume: ConversationResume | undefined =
-        archivedTask?.canArchive === true
-            ? {
-                  message: "This task is archived.",
-                  placeholder: "Resume this task to write in it.",
-                  ...(availability.online
-                      ? {
-                            resume: () => {
-                                if (!happyAgentOnline()) return;
-                                void props.workspace
-                                    .taskUnarchive(archivedTask.id)
-                                    .catch(() => undefined);
-                            },
-                        }
-                      : {}),
-              }
-            : archivedChat !== undefined &&
-                archivedChat.parentSessionId === undefined &&
-                openGroup !== undefined
-              ? {
-                    message: "This chat is archived.",
-                    placeholder: "Resume this chat to write in it.",
-                    ...(availability.online
-                        ? {
-                              resume: () => {
-                                  if (!happyAgentOnline()) return;
-                                  // Back in its group's strip, then addressed as
-                                  // a reopened closed tab is.
-                                  void props.workspace
-                                      .conversationRestore(archivedChat.id)
-                                      .then(() => props.onChatSelect(openGroup.id, archivedChat.id))
-                                      .catch(() => undefined);
-                              },
-                          }
-                        : {}),
-                }
-              : undefined;
+    const archivedChatRestore =
+        archivedChat !== undefined && archivedChat.parentSessionId === undefined
+            ? () => props.workspace.conversationRestore(archivedChat.id)
+            : undefined;
+    const archivedChatLocked = archivedChat !== undefined && archivedChatRestore === undefined;
     // Sessions without a list position are delegated children. They remain
     // readable by id, but their runner owns their input and configuration.
     // A workspace that cannot take a chat cannot take a message into an old
@@ -8024,13 +7980,12 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
     const conversationReadOnly =
         detachedConversationId !== undefined ||
         openGroupChatRefusal !== undefined ||
-        archivedChat !== undefined;
+        archivedChatLocked;
     const conversationReadOnlyReason =
         detachedConversationId !== undefined
             ? conversationLockedPlaceholder(detachedConversation?.title)
-            : (conversationResume?.placeholder ??
-              openGroupChatRefusal ??
-              (archivedChat === undefined ? undefined : CHAT_ARCHIVED_PLACEHOLDER));
+            : (openGroupChatRefusal ??
+              (archivedChatLocked ? CHAT_ARCHIVED_PLACEHOLDER : undefined));
     // Stopping is not writing. An unusable checkout still has whatever was
     // already running in it, and leaving the reader unable to end that would be
     // work they can see, cannot write to, and cannot stop either.
@@ -8786,7 +8741,11 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
         ) : (
             <HappyAgentConversationBody
                 instanceId={props.instanceId}
-                composerNotice={workspaceComposerNotice}
+                composerNotice={
+                    archivedChatRestore === undefined
+                        ? workspaceComposerNotice
+                        : [...(workspaceComposerNotice ?? []), CHAT_ARCHIVED_NOTICE]
+                }
                 modelUsageWatch={modelUsageWatch}
                 {...(props.artifacts ? { artifacts: props.artifacts } : {})}
                 {...(checkouts.status === "ready"
@@ -8891,16 +8850,9 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
                 linkOpenDefault={props.linkOpenDefault}
                 canAbort={conversationCanAbort}
                 readOnly={conversationReadOnly}
-                {...(conversationResume === undefined
+                {...(archivedChatRestore === undefined
                     ? {}
-                    : {
-                          archived: {
-                              message: conversationResume.message,
-                              ...(conversationResume.resume === undefined
-                                  ? {}
-                                  : { onResume: conversationResume.resume }),
-                          },
-                      })}
+                    : { archivedRestore: archivedChatRestore })}
                 happyAgentOnline={happyAgentOnline}
                 {...(composerConnectionRefusal === undefined
                     ? {}
@@ -10500,10 +10452,10 @@ function HappyAgentConversationBody(props: {
     linkOpenDefault: LinkOpenPlacement;
     readOnly: boolean;
     /**
-     * The conversation is archived and the reader can bring it back here; the
-     * dock above its locked input says so and offers Resume.
+     * Brings this archived conversation back. Given, sending restores it first,
+     * because Happy Agent takes no message into an archived chat.
      */
-    archived?: ConversationDockProps["archived"];
+    archivedRestore?: () => Promise<void>;
     /** Reads current transport health when a Happy Agent-backed action is invoked. */
     happyAgentOnline: () => boolean;
     /** Why the input is closed, said in the words of whatever closed it. */
@@ -10561,7 +10513,9 @@ function HappyAgentConversationBody(props: {
                 linkOpenDefault={props.linkOpenDefault}
                 canAbort={props.canAbort}
                 readOnly={props.readOnly}
-                {...(props.archived === undefined ? {} : { archived: props.archived })}
+                {...(props.archivedRestore === undefined
+                    ? {}
+                    : { archivedRestore: props.archivedRestore })}
                 happyAgentOnline={props.happyAgentOnline}
                 {...(props.unavailable === undefined ? {} : { unavailable: props.unavailable })}
                 {...(props.restarting === true ? { restarting: true } : {})}
@@ -10922,10 +10876,10 @@ function HappyAgentConversationSurface(props: {
     linkOpenDefault: LinkOpenPlacement;
     readOnly: boolean;
     /**
-     * The conversation is archived and the reader can bring it back here; the
-     * dock above its locked input says so and offers Resume.
+     * Brings this archived conversation back. Given, sending restores it first,
+     * because Happy Agent takes no message into an archived chat.
      */
-    archived?: ConversationDockProps["archived"];
+    archivedRestore?: () => Promise<void>;
     /** Reads current transport health when a Happy Agent-backed action is invoked. */
     happyAgentOnline: () => boolean;
     /** Why the input is closed, said in the words of whatever closed it. */
@@ -11141,7 +11095,6 @@ function HappyAgentConversationSurface(props: {
                 <HappyAgentComposerDock
                     composer={conversation.composer}
                     disabled={composerDisabled}
-                    {...(props.archived === undefined ? {} : { archived: props.archived })}
                     {...(!props.readOnly && modelsNotConfigured
                         ? { disabledNote: MODELS_NOT_CONFIGURED_NOTE }
                         : {})}
@@ -11292,8 +11245,17 @@ function HappyAgentConversationSurface(props: {
                         workspace.composerFocusUpdate(conversation.composer.get().scopeId, focused)
                     }
                     onComposerSend={() => {
-                        if (!modelsNotConfigured && props.happyAgentOnline())
+                        if (modelsNotConfigured || !props.happyAgentOnline()) return;
+                        const restore = props.archivedRestore;
+                        if (restore === undefined) {
                             workspace.composerTextSubmit();
+                            return;
+                        }
+                        // An archived chat comes back before the message goes to it;
+                        // the draft waits in the input meanwhile.
+                        void restore()
+                            .then(() => workspace.composerTextSubmit())
+                            .catch(() => undefined);
                     }}
                     onComposerValueChange={(value) =>
                         workspace.composerTextUpdate(conversation.composer.get().scopeId, value)
