@@ -790,16 +790,24 @@ export function messageRowHeight(input: MessageRowHeightInput): number {
  * pages' heights (`messageMarkdownMedia`), as part of a row key: empty for a
  * body with neither. Read from the same resolved text the row is sized from,
  * so the parsed body is shared with it. A streaming body is sized again with
- * every delta, so it needs none.
+ * every delta, so it needs none. `at` is the version of the learned sizes the
+ * caller read, so a memoized render asks again exactly when a size arrives.
  */
 export function messageMediaSignature(
     body: string,
     references: MessageReferences | undefined,
     streaming: boolean,
     cache: MessageTextLayoutCache | undefined,
+    at?: number,
 ): string {
     if (streaming || (!body.includes("![") && !body.includes("artifact"))) return "";
-    return markdownMediaSignature(messageReferencesResolve(body, references, false), cache);
+    return markdownMediaSignature(
+        messageReferencesResolve(body, references, false),
+        cache,
+        false,
+        true,
+        at,
+    );
 }
 
 /**
