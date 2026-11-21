@@ -40,6 +40,7 @@ import type { Loadable } from "../conversation/loadable.js";
 import { UserError, type AgentTurnTraceSummary } from "../types.js";
 import {
     composerStoreCreate,
+    composerCommandInvocationOf,
     type ComposerAttachment,
     type ComposerCommand,
     type ComposerReviewComment,
@@ -2037,6 +2038,13 @@ export interface HappyAgentWorkspaceStore {
     composerTextUpdate(scopeId: string, text: string): void;
     composerFocusUpdate(scopeId: string, focused: boolean): void;
     composerTextSubmit(): void;
+    /**
+     * Whether submitting the open conversation's draft now asks a side question
+     * instead of sending a message: the draft is this window's `/btw` and the
+     * chat answers side questions. An archived chat is asked as it stands and
+     * stays archived, so its owner does not bring it back first.
+     */
+    composerDraftAsksSideQuestion(): boolean;
     composerCommandInvoke(commandId: string): void;
     /**
      * Attaches picked, pasted, or dropped files to the addressed draft. Small
@@ -9083,6 +9091,15 @@ export function happyAgentWorkspaceStoreCreate(
         composerFocusUpdate: (scopeId, focused) =>
             composerLive(scopeId)?.getState().focusUpdate(focused),
         composerTextSubmit: () => (groupComposer ?? composer)?.getState().textSubmit(),
+        composerDraftAsksSideQuestion() {
+            // A group's composer has no chat to ask yet.
+            if (groupComposer || !composer || !chatStore) return false;
+            const invocation = composerCommandInvocationOf(composer.getState());
+            return (
+                invocation?.command.id === happyAgentSideQuestionCommand.id &&
+                sideQuestionsOffered(chatStore.get().session)
+            );
+        },
         composerCommandInvoke: (commandId) =>
             (groupComposer ?? composer)?.getState().commandInvoke(commandId),
         composerAttachmentsAdd(files) {

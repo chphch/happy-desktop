@@ -11302,7 +11302,9 @@ function HappyAgentConversationSurface(props: {
                     onComposerSend={() => {
                         if (modelsNotConfigured || !props.happyAgentOnline()) return;
                         const restore = props.archivedRestore;
-                        if (restore === undefined) {
+                        // A side question is asked of an archived chat as it stands,
+                        // which stays archived; only a message brings it back.
+                        if (restore === undefined || workspace.composerDraftAsksSideQuestion()) {
                             workspace.composerTextSubmit();
                             return;
                         }

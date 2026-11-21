@@ -359,6 +359,22 @@ function commandInvocationOf(
     };
 }
 
+/**
+ * The offered command submitting this draft runs, with its arguments, or
+ * undefined when the submission sends a message or nothing. A draft with
+ * attachments is a message, except to a command that needs its words: `/btw`
+ * must never be sent, so its owner decides what the attachments mean.
+ */
+export function composerCommandInvocationOf(
+    draft: Pick<ComposerSnapshot, "voiceDraft" | "text" | "attachments" | "capabilities">,
+): { readonly command: ComposerCommand; readonly arguments?: string } | undefined {
+    if (draft.voiceDraft) return undefined;
+    const invocation = commandInvocationOf(draft.text, draft.capabilities.commands);
+    return draft.attachments.length === 0 || invocation?.command.argumentsRequired === true
+        ? invocation
+        : undefined;
+}
+
 /** Whether two complete command catalogs say the same thing in the same order. */
 function commandsEqual(
     left: readonly ComposerCommand[],
@@ -540,16 +556,7 @@ export function composerStoreCreate(
                 (previous.text.length === 0 && previous.attachments.length === 0)
             )
                 return;
-            const invocation = previous.voiceDraft
-                ? undefined
-                : commandInvocationOf(previous.text, previous.capabilities.commands);
-            // A draft with attachments is a message, except to a command that
-            // needs its words: `/btw` must never be sent, so its owner decides
-            // what the attachments mean.
-            const commandInvocation =
-                previous.attachments.length === 0 || invocation?.command.argumentsRequired === true
-                    ? invocation
-                    : undefined;
+            const commandInvocation = composerCommandInvocationOf(previous);
             if (commandInvocation !== undefined) {
                 set({ submission: { status: "pending", revision: previous.revision } });
                 output({
