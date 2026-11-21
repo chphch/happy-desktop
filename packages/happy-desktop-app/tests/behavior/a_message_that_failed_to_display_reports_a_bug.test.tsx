@@ -14,6 +14,7 @@ import {
     composerStoreCreate,
     happyAgentGroupAccessRefused,
     happyAgentHostNoop,
+    happyAgentSideQuestionsStoreCreate,
     HAPPY_AGENT_GROUP_UNLISTED_REFUSAL,
     HAPPY_AGENT_RETAINED_CONVERSATIONS_NONE,
 } from "happy-desktop-state";
@@ -141,6 +142,7 @@ function workspace() {
             [Symbol.dispose]: () => undefined,
         } as unknown as HappyAgentPanelStore,
         subscribe: () => () => undefined,
+        sideQuestions: happyAgentSideQuestionsStoreCreate({ api: () => undefined }),
         bugReportCreateOpen: () => calls.push("bugReportCreateOpen"),
         taskCreateMessageUpdate: (text: string) => taskComposer.getState().textUpdate(text),
         [Symbol.dispose]: () => undefined,

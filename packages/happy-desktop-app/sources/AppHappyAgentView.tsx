@@ -164,6 +164,7 @@ import type {
     HappyAgentSessionId,
     HappyAgentTaskCreatePurpose,
     HappyAgentSessionSummary,
+    HappyAgentSideQuestionsStore,
     ScrollbarVisibility,
     ThemeMode,
     SubagentSummary,
@@ -361,6 +362,7 @@ import {
     RenderErrorBoundary,
     RetainedViews,
     ViewErrorFallback,
+    SideQuestionPanel,
     type TabTransferTarget,
     WindowDragRegion,
     happyAgentComposerModelControlProps,
@@ -487,6 +489,8 @@ const sidebarDaemonStoreNoop: AppHappyAgentDaemonStore = {
  */
 const AGENT_RESTARTING_NOTICE = ["Agent is restarting. You can keep editing your draft."] as const;
 const AGENT_OFFLINE_NOTICE = ["Agent is offline. You can keep editing your draft."] as const;
+/** What a bare `/btw` says, on this window only, as Claude Code says it. */
+const SIDE_QUESTION_USAGE_NOTICE = ["Usage: /btw <your question>"] as const;
 
 const agentUpdateStoreNoop: AppHappyAgentUpdateStore = {
     cardToggle: () => undefined,
@@ -11427,6 +11431,41 @@ function happyAgentDelegatedElapsedMs(
     return startedAt === undefined ? undefined : Math.max(0, now - startedAt);
 }
 
+/**
+ * A chat's `/btw` thread, floated over the top of its transcript. It reads the
+ * thread through a subscription of its own, so an answer arriving or a
+ * follow-up being typed renders this panel and nothing else of the chat.
+ */
+function HappyAgentSideQuestionAside(props: {
+    conversationId: HappyAgentSessionId;
+    sideQuestions: HappyAgentSideQuestionsStore;
+    onFileOpen: FileOpenHandler;
+    onFileLinkOpen: FileLinkOpenHandler;
+    onLinkOpen: LinkOpenHandler;
+    linkOpenDefault: LinkOpenPlacement;
+}) {
+    const { conversationId, sideQuestions } = props;
+    const thread = useSyncExternalStore(
+        sideQuestions.subscribe,
+        () => sideQuestions.get().threads.get(conversationId),
+        () => sideQuestions.get().threads.get(conversationId),
+    );
+    if (thread === undefined) return null;
+    return (
+        <SideQuestionPanel
+            draft={thread.draft}
+            linkOpenDefault={props.linkOpenDefault}
+            onAsk={() => sideQuestions.draftSubmit(conversationId)}
+            onClose={() => sideQuestions.threadClose(conversationId)}
+            onDraftChange={(text) => sideQuestions.draftUpdate(conversationId, text)}
+            onFileLinkOpen={props.onFileLinkOpen}
+            onFileOpen={props.onFileOpen}
+            onLinkOpen={props.onLinkOpen}
+            questions={thread.questions}
+        />
+    );
+}
+
 function HappyAgentConversationSurface(props: {
     /** Opens a bug report about a message that failed to display, prefilled with what names it. */
     onInvalidMessageReport?: (
@@ -11539,6 +11578,21 @@ function HappyAgentConversationSurface(props: {
         inlineStore.subscribe,
         inlineStore.get,
         inlineStore.get,
+    );
+    /* Whether this chat has a `/btw` thread open, and whether it is saying how
+       to use one. Each is one answer that rarely changes, so a follow-up typed
+       in the panel renders the panel alone, not this chat. */
+    const sideQuestions = workspace.sideQuestions;
+    const sideQuestionChatId = conversation.conversationId as HappyAgentSessionId;
+    const sideThreadOpen = useSyncExternalStore(
+        sideQuestions.subscribe,
+        () => sideQuestions.get().threads.has(sideQuestionChatId),
+        () => sideQuestions.get().threads.has(sideQuestionChatId),
+    );
+    const sideQuestionUsage = useSyncExternalStore(
+        sideQuestions.subscribe,
+        () => sideQuestions.get().usage.has(sideQuestionChatId),
+        () => sideQuestions.get().usage.has(sideQuestionChatId),
     );
     // A session that is still being read is not a reason to unmount this
     // surface: the composer is already live, the header already carries the
@@ -11711,6 +11765,7 @@ function HappyAgentConversationSurface(props: {
                     // and only while the input is open: a locked chat already says why.
                     notice={[
                         ...(props.composerNotice ?? []),
+                        ...(sideQuestionUsage ? SIDE_QUESTION_USAGE_NOTICE : []),
                         ...(!composerDisabled
                             ? props.restarting === true
                                 ? AGENT_RESTARTING_NOTICE
@@ -11827,7 +11882,9 @@ function HappyAgentConversationSurface(props: {
                     onComposerSend={() => {
                         if (modelsNotConfigured || !props.happyAgentOnline()) return;
                         const restore = props.archivedRestore;
-                        if (restore === undefined) {
+                        // A side question is asked of an archived chat as it stands,
+                        // which stays archived; only a message brings it back.
+                        if (restore === undefined || workspace.composerDraftAsksSideQuestion()) {
                             workspace.composerTextSubmit();
                             return;
                         }
@@ -11903,6 +11960,22 @@ function HappyAgentConversationSurface(props: {
             {...(conversation.retrying === undefined ? {} : { retrying: conversation.retrying })}
             loading={!conversation.ready}
             {...(props.notice === undefined ? {} : { notice: props.notice })}
+            {...(sideThreadOpen
+                ? {
+                      aside: (
+                          <HappyAgentSideQuestionAside
+                              conversationId={sideQuestionChatId}
+                              linkOpenDefault={props.linkOpenDefault}
+                              onFileLinkOpen={props.onFileLinkOpen}
+                              onFileOpen={(path, selection) => {
+                                  if (props.happyAgentOnline()) props.onFileOpen(path, selection);
+                              }}
+                              onLinkOpen={props.onLinkOpen}
+                              sideQuestions={sideQuestions}
+                          />
+                      ),
+                  }
+                : {})}
             scrollPosition={conversation.scrollPosition}
             onScrollPositionChange={(position) => {
                 workspace.conversationScrollUpdate(
