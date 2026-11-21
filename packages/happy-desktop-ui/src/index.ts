@@ -457,6 +457,7 @@ export {
     type ComposerFooterBarProps,
     type ConversationDockProps,
 } from "./ConversationDock";
+export { SideQuestionPanel, type SideQuestionPanelProps } from "./SideQuestionPanel";
 export {
     HappyAgentUserInputPrompt,
     type HappyAgentUserInputAnswerMap,
