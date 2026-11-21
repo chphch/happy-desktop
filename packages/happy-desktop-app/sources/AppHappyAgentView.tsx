@@ -8872,11 +8872,10 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
                                     ) : null
                                 }
                                 activeId={workspace.activeMainViewId ?? props.chatId ?? ""}
-                                // One document needs no strip: the band floats over the
-                                // content, and without a second tab it goes, giving
-                                // that document the full height without moving it.
+                                // The band floats over the content and stays even
+                                // with one tab or none, since it holds the controls
+                                // that start a session and close a tab.
                                 barOverlay
-                                barHidden={groupTabs.length <= 1}
                                 tabSizing="content"
                                 closePresentation="overlay"
                                 overflowFade
