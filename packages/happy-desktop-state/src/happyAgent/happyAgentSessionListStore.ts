@@ -333,11 +333,18 @@ export interface HappyAgentSessionListStore {
     sessionArchive(sessionId: HappyAgentSessionId): Promise<void>;
     /** Returns an archived session to its workspace strip and verifies the host's answer. */
     sessionRestore(sessionId: HappyAgentSessionId): Promise<HappyAgentSessionRestoreResult>;
-    /** Moves one session after `afterId`, or to the front of its workspace when null. */
+    /**
+     * Moves one session after `afterId`, or to the front of its workspace when
+     * null. The host keeps one order of a workspace's sessions for every client,
+     * so the move is the host's to make: the row moves here at once and keeps
+     * that place until the host has answered it, or goes back when the host
+     * refuses. Resolves `false` when the session did not move: the host refused,
+     * or the move could not be sent.
+     */
     sessionReorder(
         sessionId: HappyAgentSessionId,
         afterId: HappyAgentSessionId | null,
-    ): Promise<void>;
+    ): Promise<boolean>;
 
     /** Moves one project after `afterId`, or to the front of the list when null. */
     projectReorder(
@@ -615,6 +622,7 @@ export interface HappyAgentSessionListDeps {
         | "reorderWorkspace"
         | "renameTask"
         | "renameWait"
+        | "sessionReorderWait"
         | "setBotAvatar"
         | "setEffort"
         | "setPermissionMode"
@@ -1039,7 +1047,73 @@ export function happyAgentSessionListStoreCreate(
               readonly projectId: HappyAgentProjectId;
               readonly order: readonly HappyAgentWorktreeId[];
           }
+        | { readonly kind: "session"; readonly groupId: HappyAgentGroupId }
     >();
+    /**
+     * Session orders this window moved and the host has not answered yet, keyed
+     * by the workspace whose strip they are: the project's own or one of its
+     * worktrees'. Each is laid over every read until the host has taken every
+     * move sent for that workspace and a read issued after the last answer has
+     * been applied, which is the first read that can carry them all. Moves reach
+     * the host in the order they were made (`reorderSession`), so that read
+     * shows the order this one holds, unless another client moved something
+     * meanwhile, and then the host's order is the one to show. A refused move
+     * lets go of the order at once. Nothing about the strip itself is waited
+     * for: a session added meanwhile would keep a whole-strip match from ever
+     * holding, and a session's own order key changes with a move made before.
+     */
+    const sessionOrders = new Map<
+        HappyAgentGroupId,
+        {
+            /** The moves sent for this workspace that the host has not answered. */
+            readonly pending: ReadonlySet<string>;
+            readonly order: readonly HappyAgentSessionId[];
+            /** The newest read issued when the last move was answered. */
+            readonly answeredAt?: number;
+        }
+    >();
+
+    /** Lets go of a workspace's held session order and of the moves recorded for it. */
+    const sessionOrderRelease = (groupId: HappyAgentGroupId): void => {
+        sessionOrders.delete(groupId);
+        for (const [mutationId, target] of reorderMutations)
+            if (target.kind === "session" && target.groupId === groupId)
+                reorderMutations.delete(mutationId);
+    };
+
+    /**
+     * Records the host's answer to one session move. A refusal lets go of the
+     * workspace's order now; the last of its moves taken asks for a read, and
+     * the order is let go once that read is applied (`sessionOrdersSettle`).
+     */
+    const sessionMoveAnswered = (
+        groupId: HappyAgentGroupId,
+        mutationId: string,
+        taken: boolean,
+    ): void => {
+        const held = sessionOrders.get(groupId);
+        if (held === undefined || !held.pending.has(mutationId)) return;
+        if (!taken) {
+            sessionOrderRelease(groupId);
+            publish();
+            return;
+        }
+        const pending = new Set(held.pending);
+        pending.delete(mutationId);
+        sessionOrders.set(groupId, {
+            pending,
+            order: held.order,
+            ...(pending.size === 0 ? { answeredAt: readSequence } : {}),
+        });
+        if (pending.size === 0) void reconcile();
+    };
+
+    /** Lets go of each held session order whose answers a read applied now carries. */
+    const sessionOrdersSettle = (): void => {
+        for (const [groupId, held] of sessionOrders)
+            if (held.answeredAt !== undefined && appliedSequence > held.answeredAt)
+                sessionOrderRelease(groupId);
+    };
     // Callers waiting for a freshly reserved worktree to be given its canonical
     // path. Settled from every reconcile, so the wait is driven by the host's
     // own catalog rather than by polling it. Each waiter keeps both halves: a
@@ -1441,17 +1515,39 @@ export function happyAgentSessionListStoreCreate(
             .map(({ entry }) => entry);
     };
 
+    /** One workspace's sessions in the order held for it, or as they are when none is. */
+    const sessionsHeldApply = <T extends { readonly id: string }>(
+        groupId: HappyAgentGroupId,
+        conversations: readonly T[],
+    ): readonly T[] => orderByIds(conversations, sessionOrders.get(groupId)?.order);
+
     const optimisticOrderApply = (
         projected: readonly HappyAgentProjectGroup[],
     ): readonly HappyAgentProjectGroup[] => {
         const { optimisticProjectOrder, optimisticWorkspaceOrders } = internal.getState();
-        if (optimisticProjectOrder === undefined && optimisticWorkspaceOrders.size === 0)
+        if (
+            optimisticProjectOrder === undefined &&
+            optimisticWorkspaceOrders.size === 0 &&
+            sessionOrders.size === 0
+        )
             return projected;
         return orderByIds(
             projected.map((project) => {
                 const order = optimisticWorkspaceOrders.get(project.id);
-                if (order === undefined) return project;
-                return { ...project, worktrees: orderByIds(project.worktrees, order) };
+                const conversations = sessionsHeldApply(project.id, project.conversations);
+                const held = project.worktrees.some((worktree) => sessionOrders.has(worktree.id));
+                if (order === undefined && !held && conversations === project.conversations)
+                    return project;
+                return {
+                    ...project,
+                    conversations,
+                    worktrees: orderByIds(project.worktrees, order).map((worktree) => {
+                        const sessions = sessionsHeldApply(worktree.id, worktree.conversations);
+                        return sessions === worktree.conversations
+                            ? worktree
+                            : { ...worktree, conversations: sessions };
+                    }),
+                };
             }),
             optimisticProjectOrder,
         );
@@ -1898,6 +1994,7 @@ export function happyAgentSessionListStoreCreate(
                         ? projected
                         : authoritativeGroups(snapshot.catalog, snapshot.sessions);
                 optimisticOrdersConfirm(authoritativeProjected);
+                sessionOrdersSettle();
                 // Judged against the previous authoritative read, so a row this
                 // store took out optimistically is still a change when the host
                 // confirms it, and a read describing the same catalog twice is
@@ -2123,6 +2220,10 @@ export function happyAgentSessionListStoreCreate(
             nextWorkspaceOrders.delete(reordered.projectId);
             internal.setState({ optimisticWorkspaceOrders: nextWorkspaceOrders });
         }
+        // Any refused session move lets go of its workspace's held order, even
+        // one made before the move the hold is for: that hold was laid over an
+        // order the host will now never reach.
+        if (reordered?.kind === "session") sessionOrderRelease(reordered.groupId);
         const previous = store.getState();
         const worktreeCreateFailures =
             rejection.action === "create_workspace"
@@ -2342,6 +2443,12 @@ export function happyAgentSessionListStoreCreate(
                     sessionArchiveIntents.delete(sessionId);
                 botAvatarIntentWithdraw(expired);
                 nameIntentWithdraw(expired);
+                const reordered = reorderMutations.get(expired);
+                if (
+                    reordered?.kind === "session" &&
+                    sessionOrders.get(reordered.groupId)?.pending.has(expired)
+                )
+                    sessionOrderRelease(reordered.groupId);
                 // Too old for an answer to be heard: the row goes back to
                 // whatever the host lists, and its waiters are told so.
                 removalForget(expired);
@@ -2799,8 +2906,37 @@ export function happyAgentSessionListStoreCreate(
         },
         sessionReorder: (sessionId, afterId) =>
             mutate(async () => {
-                connectMutationTrack(deps.connectActions.reorderSession(sessionId, afterId));
-            }),
+                if (afterId === sessionId) return false;
+                const { catalog } = internal.getState();
+                const projected = projectLocal(catalog, sessionsOf());
+                const current = store.getState().projects;
+                // The workspace whose strip holds the session, as it is shown:
+                // the reader moved it among what they saw, held moves included.
+                const group = (current.type === "ready" ? current.value : projected)
+                    .flatMap((project) => [project, ...project.worktrees])
+                    .find((candidate) =>
+                        candidate.conversations.some((summary) => summary.id === sessionId),
+                    );
+                if (group === undefined) return false;
+                const ids = group.conversations.map((summary) => summary.id as HappyAgentSessionId);
+                if (afterId !== null && !ids.includes(afterId)) return false;
+                const order = reorderedIds(ids, sessionId, afterId);
+                if (orderMatches(group.conversations, order)) return true;
+                const mutationId = connectMutationTrack(
+                    deps.connectActions.reorderSession(sessionId, afterId),
+                );
+                const pending = new Set(sessionOrders.get(group.id)?.pending);
+                pending.add(mutationId);
+                sessionOrders.set(group.id, { pending, order });
+                reorderMutations.set(mutationId, { kind: "session", groupId: group.id });
+                publish(projected);
+                const taken = await deps.connectActions.sessionReorderWait(mutationId).then(
+                    () => true,
+                    () => false,
+                );
+                sessionMoveAnswered(group.id, mutationId, taken);
+                return taken;
+            }).then((moved) => moved ?? false),
         worktreeCreate: (projectId) =>
             mutateSync(() => {
                 // The connection names the worktree itself and returns that name

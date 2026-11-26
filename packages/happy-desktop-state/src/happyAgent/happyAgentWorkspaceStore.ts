@@ -125,7 +125,6 @@ import type {
     HappyAgentActivityModel,
     HappyAgentConversationSource,
 } from "./happyAgentActivity.js";
-import { orderKeyAfter } from "../utils/orderKeyAfter.js";
 import { orderKeySequence } from "../utils/orderKeySequence.js";
 import type {
     HappyAgentProjectArchiveResult,
@@ -1679,9 +1678,10 @@ export interface HappyAgentWorkspaceStore {
     conversationRestore(conversationId: HappyAgentSessionId): Promise<void>;
     /**
      * Moves one tab of the addressed group directly after `afterId`, or to the
-     * front of the strip when null. The order is this client's own and takes
-     * effect at once: nothing is asked of the daemon, which orders sessions but
-     * cannot order a strip that also holds files.
+     * front of the strip when null, and takes effect at once. Where the tabs
+     * stand in the strip is this client's own. Which session stands where among
+     * the sessions is the order the daemon keeps for every client, so moving a
+     * session past another one also asks the daemon to move it there.
      */
     tabReorder(tabId: string, afterId: string | null): void;
     /**
@@ -3208,14 +3208,18 @@ export function happyAgentWorkspaceStoreCreate(
      * follows in the order it arrived, which is what puts a newly opened tab
      * last without anything having to be written down for it.
      *
-     * The keys are this client's own. The daemon orders sessions, but the strip
-     * holds sessions and files together and will hold more than that, so an
-     * order it can only see part of could never be the one on screen.
+     * The keys are this client's own, and they decide only which places in the
+     * strip hold a session. Which session is in each of those places is the
+     * list's order, the one the daemon keeps for every client: the phone lists
+     * a workspace's chats in it and another window shows its strip in it, so
+     * the sessions here follow it, while files and moved-out panel tabs keep
+     * places only this client knows about.
      */
     const groupTabOrderCompute = (groupId: HappyAgentGroupId | undefined): readonly string[] => {
         if (groupId === undefined) return [];
+        const sessions = groupConversationIdList(groupId);
         const arrival = [
-            ...groupConversationIdList(groupId),
+            ...sessions,
             // The whole change, where it is open. It belongs to the checkout the
             // same way a file of it does, so it is arranged in the same strip.
             ...(reviews.has(groupId) ? [reviewIdOf(groupId)] : []),
@@ -3242,7 +3246,12 @@ export function happyAgentWorkspaceStoreCreate(
             if (leftKey !== rightKey) return leftKey < rightKey ? -1 : 1;
             return left < right ? -1 : 1;
         });
-        return [...keyed, ...arrival.filter((id) => order[id] === undefined)];
+        const placed = [...keyed, ...arrival.filter((id) => order[id] === undefined)];
+        // The places sessions hold are filled with the sessions in the list's
+        // order, so a move another client made shows here too.
+        const listed = new Set(sessions);
+        let next = 0;
+        return placed.map((id) => (listed.has(id) ? sessions[next++]! : id));
     };
 
     /**
@@ -8182,32 +8191,54 @@ export function happyAgentWorkspaceStoreCreate(
         tabReorder(tabId, afterId) {
             if (disposed || addressedGroupId === undefined) return;
             const groupId = addressedGroupId;
-            if (!tabOrder.includes(tabId)) return;
+            if (!tabOrder.includes(tabId) || afterId === tabId) return;
             if (afterId !== null && !tabOrder.includes(afterId)) return;
-            const stored = client.memory.groupRead(groupId)?.order ?? {};
-            // A tab can only be placed between two keys, so the strip as it
-            // stands is written down first: the tabs that already have keys keep
-            // them, and the ones that arrived since sort after the last of them
-            // exactly where they are already showing.
-            const keyed = tabOrder.filter((id) => stored[id] !== undefined);
-            const unkeyed = tabOrder.filter((id) => stored[id] === undefined);
-            const minted = orderKeySequence(
-                unkeyed.length,
-                keyed.length > 0 ? stored[keyed[keyed.length - 1]!]! : null,
-            );
-            const order: Record<string, string> = {};
-            for (const id of keyed) order[id] = stored[id]!;
-            unkeyed.forEach((id, index) => {
-                order[id] = minted[index]!;
+            const remaining = tabOrder.filter((id) => id !== tabId);
+            const at = afterId === null ? 0 : remaining.indexOf(afterId) + 1;
+            const arranged = [...remaining.slice(0, at), tabId, ...remaining.slice(at)];
+            const sessions = groupConversationIds(groupId);
+            const sessionsNow = tabOrder.filter((id) => sessions.has(id));
+            const sessionsMoved = arranged.filter((id) => sessions.has(id));
+            const previous = client.memory.groupRead(groupId)?.order;
+            // One recompute for the whole move: the keys and the list's own move
+            // of the session would each show only half of it.
+            compose(() => {
+                // The strip is written down whole, as it will stand. The sessions
+                // in it are shown in the list's order rather than by their own
+                // keys, so the keys already stored need not sort the way the strip
+                // is shown, and a key placed between two of them could land
+                // anywhere.
+                const keys = orderKeySequence(arranged.length);
+                const order: Record<string, string> = {};
+                arranged.forEach((id, index) => {
+                    order[id] = keys[index]!;
+                });
+                client.memory.groupOrderWrite(groupId, order);
+                memoryRevision += 1;
+                // Where a session stands among the other sessions is the list's
+                // order, which the daemon keeps for every client, so that part of
+                // the move is the daemon's: after the session now before it, or
+                // first. A move past files alone leaves it as it was and asks
+                // nothing.
+                if (sessionsMoved.every((id, index) => id === sessionsNow[index])) return;
+                const written = client.memory.groupRead(groupId)?.order;
+                const before = sessionsMoved.indexOf(tabId) - 1;
+                void list
+                    .sessionReorder(
+                        tabId as HappyAgentSessionId,
+                        (before < 0 ? null : sessionsMoved[before]!) as HappyAgentSessionId | null,
+                    )
+                    .then((moved) => {
+                        // A refused move leaves the sessions where they were, so
+                        // the strip goes back as it was too, files included,
+                        // unless it has been arranged again since.
+                        if (moved || disposed) return;
+                        if (client.memory.groupRead(groupId)?.order !== written) return;
+                        client.memory.groupOrderWrite(groupId, previous ?? {});
+                        memoryRevision += 1;
+                        recompute();
+                    });
             });
-            order[tabId] = orderKeyAfter(
-                tabOrder.map((id) => ({ id, orderKey: order[id]! })),
-                tabId,
-                afterId,
-            );
-            client.memory.groupOrderWrite(groupId, order);
-            memoryRevision += 1;
-            recompute();
         },
         projectAdd() {
             if (disposed || projectAdd.pending) return;
