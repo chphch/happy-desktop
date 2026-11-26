@@ -576,6 +576,7 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
     const sendAcceptance = new Map<string, Promise<void>>();
     const modeSaveOutcomes = new Map<string, Promise<void>>();
     const renameOutcomes = new Map<string, Promise<void>>();
+    const reorderOutcomes = new Map<string, Promise<void>>();
     const sendAcceptanceCreate = (id: string) => {
         let resolve!: () => void;
         let reject!: (error: Error) => void;
@@ -4770,6 +4771,12 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
             while (renameOutcomes.size > 256)
                 renameOutcomes.delete(renameOutcomes.keys().next().value!);
         }
+        if (action === "reorder_session") {
+            reorderOutcomes.set(mutationId, completed);
+            void completed.catch(() => undefined);
+            while (reorderOutcomes.size > 256)
+                reorderOutcomes.delete(reorderOutcomes.keys().next().value!);
+        }
         const creationOutcomes =
             action === "create_session"
                 ? sessionCreationOutcomes
@@ -5850,6 +5857,11 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
             renameOutcomes.delete(mutationId);
             return outcome ?? Promise.reject(new Error("This rename is no longer tracked."));
         },
+        sessionReorderWait(mutationId) {
+            const outcome = reorderOutcomes.get(mutationId);
+            reorderOutcomes.delete(mutationId);
+            return outcome ?? Promise.reject(new Error("This session move is no longer tracked."));
+        },
         workspaceCreationWait(workspaceId) {
             return (
                 workspaceCreationOutcomes.get(workspaceId) ??
@@ -6732,19 +6744,28 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
         },
         reorderSession(sessionId, afterId) {
             const mutationId = nextId();
+            // The daemon cannot place a session after an agent it does not have
+            // yet, so a move behind one still being created waits for it too.
+            const anchorCreated = afterId === null ? undefined : sessionCreations.get(afterId);
             return mutation(
                 "reorder_session",
                 mutationId,
-                () =>
-                    client.reorderAgent(
+                async () => {
+                    await anchorCreated?.catch(() => undefined);
+                    return client.reorderAgent(
                         sessionId,
                         { afterId, mutationId },
                         { signal: rootController.signal },
-                    ),
+                    );
+                },
                 ({ agent }) => adoptAgent(agent),
                 undefined,
                 sessionId,
-                `agent:${sessionId}`,
+                // One queue for every session move rather than the session's own:
+                // each move's `afterId` takes the ones made before it as done, so
+                // a move must not overtake one still waiting behind another
+                // session's draft or read mark.
+                "reorder_session",
             );
         },
         reorderSubtask(sessionId, afterId) {
@@ -6806,6 +6827,7 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
             mutationQueues.clear();
             modeSaveOutcomes.clear();
             renameOutcomes.clear();
+            reorderOutcomes.clear();
             sessionCreations.clear();
             sessionMutationCounts.clear();
             processOwners.clear();

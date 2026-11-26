@@ -1278,6 +1278,8 @@ export interface HappyAgentConnection {
     sessionModeSaveWait(mutationId: MutationId): Promise<void>;
     /** Waits for the host to take a task or group rename, rejecting when it refuses. */
     renameWait(mutationId: MutationId): Promise<void>;
+    /** Waits for the host to take a session move, rejecting when it refuses. */
+    sessionReorderWait(mutationId: MutationId): Promise<void>;
     markSessionRead(sessionId: string): MutationId;
     sendMessage(
         sessionId: string,
@@ -1345,6 +1347,12 @@ export interface HappyAgentConnection {
     reorderBot(botId: string, afterId: string | null): MutationId;
     reorderProject(projectId: string, afterId: string | null): MutationId;
     reorderWorkspace(workspaceId: string, afterId: string | null): MutationId;
+    /**
+     * Moves one session among its workspace's sessions, after `afterId` or first
+     * when null. Moves reach the host one at a time, in the order they were
+     * made, and each waits for `afterId`'s own creation when that is still on
+     * its way.
+     */
     reorderSession(sessionId: string, afterId: string | null): MutationId;
     /** Moves one bot subtask among its siblings, after `afterId` or first when null. */
     reorderSubtask(sessionId: string, afterId: string | null): MutationId;
